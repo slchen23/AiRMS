@@ -1,0 +1,244 @@
+package tw.org.ncree.teles.airms.db;
+
+import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Statement;
+import java.util.List;
+
+/**
+ * 兩個資料庫檔的結構。用 application_id 認檔、user_version 記版本：
+ * 不認得的檔（別的程式的資料庫、比程式新的版本）一律拒絕，不 DROP、不覆蓋。
+ */
+public final class Schema {
+  private Schema() { }
+
+  /** 'AiRM' / 'AiVD' 的 ASCII，避免誤開別的 SQLite 檔。 */
+  public static final int AIRMS_APP_ID = 0x4169524D;
+  public static final int VD_APP_ID = 0x41695644;
+
+  public static final int AIRMS_VERSION = 1;
+  public static final int VD_VERSION = 1;
+
+  /** 路段資料的整數欄位（XML 屬性名稱照原樣當欄名，方便對照原始檔）。 */
+  public static final List<String> SECTION_INT_FIELDS = List.of(
+      "section_upper_limit", "section_lower_limit", "section_total_car_volume",
+      "section_small_car_volume", "section_big_car_volume", "section_connect_car_volume",
+      "section_average_speed", "section_small_car_average_speed", "section_big_car_average_speed",
+      "section_connect_car_average_speed", "section_average_occupancy", "travel_time",
+      "section_congestion_level", "section_ramp_in_total_volume", "section_ramp_out_total_volume", "lanes");
+
+  /** RMS 資料的文字欄位（全部存原值，不解讀）。 */
+  public static final List<String> RMS_FIELDS = List.of(
+      "eq_comm_status", "eq_hw_status", "rms_rate", "rms_control_mode", "rms_merge_mode",
+      "rms_queue_mode", "rms_checkio_mode", "bos1_message", "bos2_message");
+
+  /** VD 車道的 14 個量測欄位，整數原值（-2 照存）。 */
+  public static final List<String> VD_LANE_FIELDS = List.of(
+      "small_car_volume", "small_car_average_speed", "small_car_average_length",
+      "big_car_volume", "big_car_average_speed", "big_car_average_length",
+      "connect_car_volume", "connect_car_average_speed", "connect_car_average_length",
+      "lane_total_car_volume", "lane_average_car_speed", "lane_average_car_interval",
+      "lane_average_occupancy", "lane_use_rate");
+
+  public static void migrateAirms(Connection c) throws Exception {
+    migrate(c, AIRMS_APP_ID, AIRMS_VERSION, "airms.db", Schema::createAirmsV1);
+  }
+
+  public static void migrateVd(Connection c) throws Exception {
+    migrate(c, VD_APP_ID, VD_VERSION, "vd_health.db", Schema::createVdV1);
+  }
+
+  @FunctionalInterface
+  private interface Ddl {
+    void apply(Statement st) throws SQLException;
+  }
+
+  private static void migrate(Connection c, int appId, int version, String name, Ddl v1) throws Exception {
+    int existingApp = pragmaInt(c, "application_id");
+    int existingVersion = pragmaInt(c, "user_version");
+    boolean empty = !hasAnyTable(c);
+    if (empty && existingVersion == 0) {
+      Db.inTransaction(c, conn -> {
+        try (Statement st = conn.createStatement()) {
+          v1.apply(st);
+          st.execute("PRAGMA application_id=" + appId);
+          st.execute("PRAGMA user_version=" + version);
+        }
+        return null;
+      });
+      return;
+    }
+    if (existingApp != appId) {
+      throw new IllegalStateException(name + " 不是本系統的資料庫（application_id 不符），拒絕使用");
+    }
+    if (existingVersion > version) {
+      throw new IllegalStateException(name + " 版本 " + existingVersion + " 比程式支援的 " + version + " 新，拒絕寫入");
+    }
+    if (existingVersion < version) {
+      throw new IllegalStateException(name + " 版本 " + existingVersion + " 需要升級程序（尚未提供）");
+    }
+  }
+
+  private static void createAirmsV1(Statement st) throws SQLException {
+    // 每次抓取一列（含失敗與內容未變），用來看來源是否正常更新。
+    st.execute("""
+        CREATE TABLE feed_attempt (
+          attempt_id     INTEGER PRIMARY KEY,
+          source         TEXT    NOT NULL,
+          started_at_ms  INTEGER NOT NULL,
+          finished_at_ms INTEGER NOT NULL,
+          http_status    INTEGER,
+          bytes          INTEGER,
+          sha256         TEXT,
+          outcome        TEXT    NOT NULL,
+          error          TEXT,
+          feed_time_raw  TEXT,
+          feed_time_ms   INTEGER
+        )""");
+    st.execute("CREATE INDEX feed_attempt_source_time ON feed_attempt(source, started_at_ms)");
+
+    // 每一份「內容不同」的原始 XML 一列；檔案本體在 xml_raw/ 目錄（gzip）。
+    st.execute("""
+        CREATE TABLE raw_xml_file (
+          raw_id         INTEGER PRIMARY KEY,
+          source         TEXT    NOT NULL,
+          sha256         TEXT    NOT NULL,
+          rel_path       TEXT    NOT NULL,
+          bytes          INTEGER NOT NULL,
+          stored_bytes   INTEGER NOT NULL,
+          received_at_ms INTEGER NOT NULL,
+          feed_time_raw  TEXT,
+          feed_time_ms   INTEGER,
+          parse_outcome  TEXT    NOT NULL,
+          rows_total     INTEGER,
+          rows_bad       INTEGER,
+          note           TEXT,
+          UNIQUE (source, sha256)
+        )""");
+    st.execute("CREATE INDEX raw_xml_file_source_time ON raw_xml_file(source, received_at_ms)");
+
+    String sectionInts = String.join(",\n", SECTION_INT_FIELDS.stream().map(f -> "  " + f + " INTEGER").toList());
+    // 每個路段的最新一筆。主鍵含國道與方向，避免國1/國3 里程相同時互相覆蓋。
+    st.execute("""
+        CREATE TABLE section_latest (
+          freeway_id     TEXT NOT NULL,
+          expressway_id  TEXT,
+          direction_id   TEXT NOT NULL,
+          from_location  TEXT,
+          from_milepost  TEXT NOT NULL,
+          end_location   TEXT,
+          end_milepost   TEXT NOT NULL,
+        """ + sectionInts + """
+        ,
+          feed_time_raw  TEXT    NOT NULL,
+          feed_time_ms   INTEGER NOT NULL,
+          updated_at_ms  INTEGER NOT NULL,
+          PRIMARY KEY (freeway_id, direction_id, from_milepost, end_milepost)
+        ) WITHOUT ROWID""");
+    st.execute("""
+        CREATE TABLE section_history (
+          freeway_id     TEXT NOT NULL,
+          expressway_id  TEXT,
+          direction_id   TEXT NOT NULL,
+          from_milepost  TEXT NOT NULL,
+          end_milepost   TEXT NOT NULL,
+          feed_time_ms   INTEGER NOT NULL,
+        """ + sectionInts + """
+        ,
+          received_at_ms INTEGER NOT NULL,
+          PRIMARY KEY (freeway_id, direction_id, from_milepost, end_milepost, feed_time_ms)
+        ) WITHOUT ROWID""");
+    st.execute("CREATE INDEX section_history_time ON section_history(feed_time_ms)");
+
+    String rmsCols = String.join(",\n", RMS_FIELDS.stream().map(f -> "  " + f + " TEXT").toList());
+    st.execute("""
+        CREATE TABLE rms_latest (
+          eq_id          TEXT PRIMARY KEY,
+        """ + rmsCols + """
+        ,
+          feed_time_raw  TEXT    NOT NULL,
+          feed_time_ms   INTEGER NOT NULL,
+          updated_at_ms  INTEGER NOT NULL
+        ) WITHOUT ROWID""");
+    st.execute("""
+        CREATE TABLE rms_history (
+          eq_id          TEXT    NOT NULL,
+          feed_time_ms   INTEGER NOT NULL,
+        """ + rmsCols + """
+        ,
+          received_at_ms INTEGER NOT NULL,
+          PRIMARY KEY (eq_id, feed_time_ms)
+        ) WITHOUT ROWID""");
+    st.execute("CREATE INDEX rms_history_time ON rms_history(feed_time_ms)");
+  }
+
+  private static void createVdV1(Statement st) throws SQLException {
+    // 每一份內容不同的 VD 檔一列。同一檔頭時間若出現不同內容（來源更正），兩份都保留。
+    st.execute("""
+        CREATE TABLE vd_snapshot (
+          snapshot_id       INTEGER PRIMARY KEY,
+          feed_time_raw     TEXT    NOT NULL,
+          feed_time_ms      INTEGER NOT NULL,
+          control_center_id TEXT,
+          file_name         TEXT,
+          received_at_ms    INTEGER NOT NULL,
+          raw_sha256        TEXT    NOT NULL UNIQUE,
+          device_count      INTEGER NOT NULL,
+          lane_count        INTEGER NOT NULL,
+          rows_bad          INTEGER NOT NULL
+        )""");
+    st.execute("CREATE INDEX vd_snapshot_time ON vd_snapshot(feed_time_ms)");
+    st.execute("""
+        CREATE TABLE vd_device (
+          device_id     INTEGER PRIMARY KEY,
+          eq_id         TEXT    NOT NULL UNIQUE,
+          first_seen_ms INTEGER NOT NULL
+        )""");
+    st.execute("""
+        CREATE TABLE vd_lane (
+          lane_key      INTEGER PRIMARY KEY,
+          device_id     INTEGER NOT NULL REFERENCES vd_device(device_id),
+          lane_ref      TEXT    NOT NULL,
+          first_seen_ms INTEGER NOT NULL,
+          UNIQUE (device_id, lane_ref)
+        )""");
+    st.execute("""
+        CREATE TABLE vd_device_sample (
+          snapshot_id      INTEGER NOT NULL REFERENCES vd_snapshot(snapshot_id),
+          device_id        INTEGER NOT NULL REFERENCES vd_device(device_id),
+          eq_comm_status   TEXT,
+          lanes            TEXT,
+          congestion_level TEXT,
+          extra_json       TEXT,
+          PRIMARY KEY (snapshot_id, device_id)
+        ) WITHOUT ROWID""");
+    String laneCols = String.join(",\n", VD_LANE_FIELDS.stream().map(f -> "  " + f + " INTEGER").toList());
+    // 14 欄整數原值；非整數或未知屬性放 extra_json（JSON 物件，原字串）。
+    st.execute("""
+        CREATE TABLE vd_lane_sample (
+          snapshot_id   INTEGER NOT NULL REFERENCES vd_snapshot(snapshot_id),
+          lane_key      INTEGER NOT NULL REFERENCES vd_lane(lane_key),
+          is_data_valid TEXT,
+        """ + laneCols + """
+        ,
+          extra_json    TEXT,
+          PRIMARY KEY (snapshot_id, lane_key)
+        ) WITHOUT ROWID""");
+    st.execute("CREATE INDEX vd_lane_sample_lane ON vd_lane_sample(lane_key, snapshot_id)");
+    st.execute("CREATE INDEX vd_device_sample_device ON vd_device_sample(device_id, snapshot_id)");
+  }
+
+  private static int pragmaInt(Connection c, String pragma) throws SQLException {
+    try (Statement st = c.createStatement(); ResultSet rs = st.executeQuery("PRAGMA " + pragma)) {
+      return rs.next() ? rs.getInt(1) : 0;
+    }
+  }
+
+  private static boolean hasAnyTable(Connection c) throws SQLException {
+    try (Statement st = c.createStatement();
+         ResultSet rs = st.executeQuery("SELECT 1 FROM sqlite_schema WHERE type='table' LIMIT 1")) {
+      return rs.next();
+    }
+  }
+}

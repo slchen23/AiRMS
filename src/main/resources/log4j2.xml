@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- log 寫在工作目錄的 logs/，保留 30 天。訊息中的外部字串已在程式內去除換行，避免 log 注入。 -->
+<Configuration status="off" name="AiRMS" shutdownHook="disable">
+  <Appenders>
+    <Console name="stdout" target="SYSTEM_OUT">
+      <PatternLayout pattern="%d{MM/dd HH:mm:ss} %-5level [%c{1}] %replace{%msg}{[\r\n]+}{ }%n"/>
+    </Console>
+    <RollingFile name="dailyfile" fileName="logs/airms.log" filePattern="logs/airms-%d{yyyy-MM-dd}.log">
+      <PatternLayout pattern="%d{yyyy/MM/dd HH:mm:ss} %-5level [%c{1}] %replace{%msg}{[\r\n]+}{ }%n%throwable"/>
+      <Policies>
+        <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
+      </Policies>
+      <DefaultRolloverStrategy>
+        <Delete basePath="logs" maxDepth="1">
+          <IfFileName glob="airms-*.log"/>
+          <IfLastModified age="30d"/>
+        </Delete>
+      </DefaultRolloverStrategy>
+    </RollingFile>
+    <Null name="discardOverflow"/>
+    <Async name="asyncLog" bufferSize="8192" blocking="false" errorRef="discardOverflow"
+           includeLocation="false" shutdownTimeout="2000">
+      <AppenderRef ref="stdout" level="info"/>
+      <AppenderRef ref="dailyfile" level="info"/>
+    </Async>
+  </Appenders>
+  <Loggers>
+    <Logger name="tw.org.ncree.teles.airms" level="info" additivity="true"/>
+    <Root level="warn">
+      <AppenderRef ref="asyncLog"/>
+    </Root>
+  </Loggers>
+</Configuration>
