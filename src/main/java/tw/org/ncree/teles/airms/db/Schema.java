@@ -17,8 +17,6 @@ public final class Schema {
   public static final int AIRMS_APP_ID = 0x4169524D;
   public static final int VD_APP_ID = 0x41695644;
 
-  public static final int AIRMS_VERSION = 1;
-  public static final int VD_VERSION = 1;
 
   /** 路段資料的整數欄位（XML 屬性名稱照原樣當欄名，方便對照原始檔）。 */
   public static final List<String> SECTION_INT_FIELDS = List.of(
@@ -42,11 +40,11 @@ public final class Schema {
       "lane_average_occupancy", "lane_use_rate");
 
   public static void migrateAirms(Connection c) throws Exception {
-    migrate(c, AIRMS_APP_ID, AIRMS_VERSION, "airms.db", Schema::createAirmsV1);
+    migrate(c, AIRMS_APP_ID, "airms.db", List.of(Schema::createAirmsV1, Schema::airmsV2));
   }
 
   public static void migrateVd(Connection c) throws Exception {
-    migrate(c, VD_APP_ID, VD_VERSION, "vd_health.db", Schema::createVdV1);
+    migrate(c, VD_APP_ID, "vd_health.db", List.of(Schema::createVdV1));
   }
 
   @FunctionalInterface
@@ -54,29 +52,31 @@ public final class Schema {
     void apply(Statement st) throws SQLException;
   }
 
-  private static void migrate(Connection c, int appId, int version, String name, Ddl v1) throws Exception {
+  /** steps.get(i) 把版本 i 升到 i+1；每一步一個交易，失敗就停在原版本。 */
+  private static void migrate(Connection c, int appId, String name, List<Ddl> steps) throws Exception {
+    int target = steps.size();
     int existingApp = pragmaInt(c, "application_id");
     int existingVersion = pragmaInt(c, "user_version");
     boolean empty = !hasAnyTable(c);
-    if (empty && existingVersion == 0) {
+    if (!(empty && existingVersion == 0)) {
+      if (existingApp != appId) {
+        throw new IllegalStateException(name + " 不是本系統的資料庫（application_id 不符），拒絕使用");
+      }
+      if (existingVersion > target) {
+        throw new IllegalStateException(name + " 版本 " + existingVersion + " 比程式支援的 " + target + " 新，拒絕寫入");
+      }
+    }
+    for (int v = existingVersion; v < target; v++) {
+      Ddl step = steps.get(v);
+      int next = v + 1;
       Db.inTransaction(c, conn -> {
         try (Statement st = conn.createStatement()) {
-          v1.apply(st);
-          st.execute("PRAGMA application_id=" + appId);
-          st.execute("PRAGMA user_version=" + version);
+          step.apply(st);
+          if (next == 1) st.execute("PRAGMA application_id=" + appId);
+          st.execute("PRAGMA user_version=" + next);
         }
         return null;
       });
-      return;
-    }
-    if (existingApp != appId) {
-      throw new IllegalStateException(name + " 不是本系統的資料庫（application_id 不符），拒絕使用");
-    }
-    if (existingVersion > version) {
-      throw new IllegalStateException(name + " 版本 " + existingVersion + " 比程式支援的 " + version + " 新，拒絕寫入");
-    }
-    if (existingVersion < version) {
-      throw new IllegalStateException(name + " 版本 " + existingVersion + " 需要升級程序（尚未提供）");
     }
   }
 
@@ -171,6 +171,22 @@ public final class Schema {
           PRIMARY KEY (eq_id, feed_time_ms)
         ) WITHOUT ROWID""");
     st.execute("CREATE INDEX rms_history_time ON rms_history(feed_time_ms)");
+  }
+
+  /**
+   * v2：程式每次啟動一列，定時更新心跳。用來區分「系統沒在跑」與「來源沒資料」：
+   * stopped_at_ms 為空表示不是正常停止（強制結束、當機、斷電），停機期間 = 下一次啟動 − 最後心跳。
+   */
+  private static void airmsV2(Statement st) throws SQLException {
+    st.execute("""
+        CREATE TABLE service_run (
+          run_id            INTEGER PRIMARY KEY,
+          started_at_ms     INTEGER NOT NULL,
+          last_heartbeat_ms INTEGER NOT NULL,
+          stopped_at_ms     INTEGER,
+          host              TEXT,
+          app_version       TEXT
+        )""");
   }
 
   private static void createVdV1(Statement st) throws SQLException {

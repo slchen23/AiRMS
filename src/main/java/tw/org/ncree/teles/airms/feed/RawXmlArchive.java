@@ -41,6 +41,23 @@ public final class RawXmlArchive {
     }
   }
 
+  /**
+   * 清掉程式被強制停止時留下的暫存檔（超過 10 分鐘的 .tmp-*）。只在歸檔目錄內、只刪本類別產生的暫存檔名。
+   * 回傳刪除的檔案數。
+   */
+  public int cleanStaleTemp(Instant now) throws IOException {
+    if (!Files.isDirectory(root)) return 0;
+    Instant cutoff = now.minusSeconds(600);
+    int deleted = 0;
+    try (var files = Files.walk(root, 5)) {
+      for (Path p : files.filter(f -> f.getFileName().toString().startsWith(".tmp-")
+          && f.getFileName().toString().endsWith(".gz") && Files.isRegularFile(f)).toList()) {
+        if (Files.getLastModifiedTime(p).toInstant().isBefore(cutoff) && Files.deleteIfExists(p)) deleted++;
+      }
+    }
+    return deleted;
+  }
+
   public Stored store(FeedKind kind, byte[] bytes, String sha256, Instant receivedAt) throws IOException {
     String rel = kind.key() + "/" + DIR.format(receivedAt) + "/"
         + NAME.format(receivedAt) + "_" + sha256.substring(0, 12) + ".xml.gz";
@@ -49,6 +66,15 @@ public final class RawXmlArchive {
     Files.createDirectories(target.getParent());
     if (Files.exists(target)) {
       return new Stored(rel, Files.size(target));
+    }
+    // 程式在「檔案已寫好、資料庫還沒記錄」之間被停掉時，重啟後會再收到同一份內容：
+    // 同一天目錄裡已有同雜湊的檔就沿用，不再多存一份。
+    String suffix = "_" + sha256.substring(0, 12) + ".xml.gz";
+    try (var siblings = Files.list(target.getParent())) {
+      var existing = siblings.filter(p -> p.getFileName().toString().endsWith(suffix)).findFirst();
+      if (existing.isPresent()) {
+        return new Stored(root.relativize(existing.get()).toString().replace('\\', '/'), Files.size(existing.get()));
+      }
     }
     Path tmp = target.resolveSibling(".tmp-" + UUID.randomUUID() + ".gz");
     try {
