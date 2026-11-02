@@ -1,0 +1,58 @@
+{
+  "schemaVersion": 1,
+  "http": {
+    "host": "0.0.0.0",
+    "port": 8081,
+    "tls": {
+      "enabled": true,
+      "keystorePath": "E:/airms-secrets/server.pfx"
+    }
+  },
+  "secretsFile": "secrets.json",
+  "storage": {
+    "dataDir": "E:/airms-data",
+    "volumeMarker": ".airms-volume"
+  },
+  "feeds": {
+    "http": {
+      "connectTimeoutMs": 10000,
+      "idleTimeoutMs": 15000,
+      "downloadTimeoutMs": 30000,
+      "maxBytes": 8388608
+    },
+    "xml": {
+      "maxElements": 50000,
+      "maxDepth": 32,
+      "maxAttributeLength": 1024
+    },
+    "vd": {
+      "enabled": true,
+      "url": "https://tisv.tcloud.freeway.gov.tw/xml/cloud_30/30_5min_vd_data.xml",
+      "intervalSeconds": 60
+    },
+    "section": {
+      "enabled": true,
+      "url": "https://tisv.tcloud.freeway.gov.tw/xml/cloud_30/30_section_traffic_data.xml",
+      "intervalSeconds": 60,
+      "filter": {
+        "freewayIds": ["1", "3"],
+        "fromMilepostMin": 99000,
+        "fromMilepostMax": 270000
+      }
+    },
+    "rms": {
+      "enabled": true,
+      "url": "https://tisv.tcloud.freeway.gov.tw/xml/cloud_30/30_1min_eq_operation_data.xml",
+      "intervalSeconds": 60,
+      "filter": {
+        "eqIdPrefixes": ["RMS-N1", "RMS-N3"]
+      }
+    }
+  },
+  "retention": {
+    "runEveryHours": 12,
+    "sectionHistoryDays": 760,
+    "rmsHistoryDays": 760,
+    "feedAttemptDays": 90
+  }
+}

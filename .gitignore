@@ -1,0 +1,36 @@
+# Build / IDE
+.gradle/
+build/
+dist/
+out/
+.idea/
+*.iml
+.vertx/
+
+# 執行期產生的檔案
+logs/
+tmp/
+data/
+
+# 各機器自己的設定與機密：絕對不進 git
+config.json
+config.*.json
+!config.example.json
+secrets.json
+*.pfx
+*.p12
+*.jks
+*.key
+*.pem
+*.crt
+*.cer
+
+# 資料庫與原始 XML（放在外接硬碟，不放專案資料夾；這裡是保險）
+*.db
+*.db-wal
+*.db-shm
+*.sqlite3*
+xml_raw/
+
+# 每日進度報告（本機產生，不進 git）
+daily-report/

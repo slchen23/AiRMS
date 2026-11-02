@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<file_attribute file_name="1min_eq_operation_data.xml" control_center_id="20" time="2026-10-28 16:09:55">
+	<eq_operation_data>
+		<rms eqId="RMS-N1-S-99-I-ES-1-南下入口" eq_comm_status="0" eq_hw_status="" rms_rate="閃黃" rms_control_mode="預設時制模式" rms_merge_mode="0" rms_queue_mode="0" rms_checkio_mode="0" bos1_message="" bos2_message=""/>
+		<rms eqId="RMS-N3-S-182-I-ES-33A-南下入口" eq_comm_status="0" eq_hw_status="" rms_control_mode="預設時制模式" rms_merge_mode="0" rms_queue_mode="0" rms_checkio_mode="0" bos1_message="" bos2_message=""/>
+		<rms eqId="" eq_comm_status="0" eq_hw_status="" rms_rate="閃黃" rms_control_mode="預設時制模式" rms_merge_mode="0" rms_queue_mode="0" rms_checkio_mode="0" bos1_message="" bos2_message=""/>
+		<rms eqId="RMS-T76-W-26-I-EW-1-西向入口" eq_comm_status="0" eq_hw_status="" rms_rate="閃黃" rms_control_mode="預設時制模式" rms_merge_mode="0" rms_queue_mode="0" rms_checkio_mode="0" bos1_message="" bos2_message=""/>
+	</eq_operation_data>
+</file_attribute>

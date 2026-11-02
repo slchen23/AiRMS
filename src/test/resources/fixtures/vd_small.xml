@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<file_attribute file_name="5min_vd_data.xml" control_center_id="20" time="2026-10-28 16:05:00">
+	<fivemin_vd_data>
+		<traffic_data eqId="VD-N1-S-109.250-M-LOOP" eq_comm_status="0" lanes="2" congestion_level="1">
+			<lane laneId="1" is_data_valid="1" small_car_volume="98" small_car_average_speed="103" small_car_average_length="42" big_car_volume="1" big_car_average_speed="104" big_car_average_length="57" connect_car_volume="0" connect_car_average_speed="0" connect_car_average_length="0" lane_total_car_volume="99" lane_average_car_speed="104" lane_average_car_interval="25" lane_average_occupancy="5" lane_use_rate="43"></lane>
+			<lane laneId="2" is_data_valid="1" small_car_volume="0" small_car_average_speed="0" small_car_average_length="0" big_car_volume="0" big_car_average_speed="0" big_car_average_length="0" connect_car_volume="0" connect_car_average_speed="0" connect_car_average_length="0" lane_total_car_volume="0" lane_average_car_speed="0" lane_average_car_interval="0" lane_average_occupancy="0" lane_use_rate="0" new_attr="x"></lane>
+		</traffic_data>
+		<traffic_data eqId="VD-T74-E-1.000-M-LOOP" eq_comm_status="1" lanes="1" congestion_level="1">
+			<lane laneId="1" is_data_valid="0" small_car_volume="-2" small_car_average_speed="-2" small_car_average_length="-2" big_car_volume="-2" big_car_average_speed="-2" big_car_average_length="-2" connect_car_volume="-2" connect_car_average_speed="-2" connect_car_average_length="-2" lane_total_car_volume="-2" lane_average_car_speed="-2" lane_average_car_interval="-2" lane_average_occupancy="-2" lane_use_rate="NA"></lane>
+		</traffic_data>
+		<traffic_data eqId="VD-N3-S-117.349-M-LOOP" eq_comm_status="0" lanes="1" congestion_level="1">
+			<lane is_data_valid="1" lane_total_car_volume="10"></lane>
+		</traffic_data>
+		<traffic_data eqId="VD-N1-S-109.250-M-LOOP" eq_comm_status="0" lanes="1" congestion_level="1"></traffic_data>
+	</fivemin_vd_data>
+</file_attribute>
