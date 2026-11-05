@@ -1,0 +1,58 @@
+/* 路網圖 SVG（network-svg.js）樣式。顏色依簡報：黑底、黃色地名、白色里程、白色匝道圈。 */
+.net-bg { fill: #000; }
+
+.road-casing { fill: none; stroke: #000; stroke-width: 17; stroke-linejoin: round; }
+.road-base { fill: none; stroke: #4a4a4a; stroke-width: 9; stroke-linejoin: round; }
+.road-section { fill: none; stroke-width: 9; stroke-linejoin: round; }
+.road-section.is-clickable { cursor: pointer; }
+
+/* 路網路段管理頁：選取的路段 */
+.net-highlight { pointer-events: none; }
+.section-highlight-halo { fill: none; stroke: #fff; stroke-width: 26; stroke-linejoin: round; stroke-linecap: round; opacity: 0.85; }
+.section-highlight { fill: none; stroke: #00e5ff; stroke-width: 14; stroke-linejoin: round; stroke-linecap: round;
+  animation: section-blink 1s ease-in-out infinite alternate; }
+.section-highlight-end { fill: #00e5ff; stroke: #000; stroke-width: 3; }
+@keyframes section-blink { from { opacity: 1; } to { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .section-highlight { animation: none; } }
+
+.net-name { fill: #ffe600; }
+.net-km { fill: #fff; }
+.net-label.is-service .net-name { fill: #c9c9c9; }
+
+.ramp-circle { fill: #fff; stroke: #000; stroke-width: 1.5; }
+.ramp-split { stroke: #555; stroke-width: 1.5; }
+.ramp-rate { fill: #e00000; }
+.ramp-rate.is-down { fill: #000; }
+.ramp-outside { fill: #8c8c8c; }
+.ramp-hit { fill: transparent; }
+.ramp-plain .ramp-circle { fill: #fff; }
+
+.shield-petal { fill: #fff; stroke: #1b7f3b; stroke-width: 1.5; }
+.shield-number { fill: #1b7f3b; }
+.end-arrow { stroke: #fff; stroke-width: 4; }
+.end-arrow-head { fill: #fff; }
+.end-label { fill: #fff; }
+
+.panel-bg { fill: #1c1c1c; stroke: #5a5a5a; stroke-width: 1.5; }
+.panel-title { fill: #fff; font-weight: bold; }
+.panel-text { fill: #ddd; }
+.panel-value { fill: #fff; font-weight: bold; }
+.panel-value.is-stale { fill: #ff5a5a; }
+.legend-swatch { stroke: #000; stroke-width: 1; }
+
+/* 屏柵線鈴 */
+.net-bell.is-hidden { display: none; }
+.bell-body { stroke: #000; stroke-width: 1.2; }
+.bell-waves { fill: none; stroke-width: 3; stroke-linecap: round; }
+.bell-mark { stroke: #fff; stroke-width: 4; stroke-linecap: round; }
+.bell-cross { stroke: #000; stroke-width: 5; stroke-linecap: round; display: none; }
+.bell-volume .bell-body { fill: #d7002a; }
+.bell-volume .bell-waves { stroke: #d7002a; }
+.bell-continuous .bell-body { fill: #ff8c1a; }
+.bell-continuous .bell-waves { stroke: #ff8c1a; }
+.bell-error .bell-body { fill: #f2f2f2; }
+.bell-error .bell-waves { stroke: #f2f2f2; }
+.bell-error .bell-mark { display: none; }
+.bell-error .bell-cross { display: inline; }
+.net-bell .bell-cross { stroke: #000; }
+.net-bell.bell-error .bell-cross { stroke: #e00000; }

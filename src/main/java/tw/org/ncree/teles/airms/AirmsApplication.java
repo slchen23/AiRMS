@@ -7,7 +7,7 @@ import org.apache.logging.log4j.LogManager;
 
 /**
  * 程式進入點。沿用 Vert.x 5 的 VertxApplication（同 StockVX），主 verticle 由 jar 的 Main-Verticle 指定。
- * 執行：java -Duser.timezone=Asia/Taipei -jar airms-fat.jar
+ * 執行：java -Duser.timezone=Asia/Taipei -jar airms-<版本>-fat.jar（例如 airms-0.3.0-fat.jar）
  * log4j 的關閉交給這裡：等 Vert.x 停完（資料庫已關閉）才關 log，停止過程的訊息才不會遺失。
  */
 public final class AirmsApplication extends VertxApplication implements VertxApplicationHooks {

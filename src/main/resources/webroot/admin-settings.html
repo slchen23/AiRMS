@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>系統設定 - AiRMS</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/adminlte-4.10.0/css/adminlte.min.css">
+  <link rel="stylesheet" href="/vendor/bootstrap-icons-1.13.2/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="layout-fixed sidebar-expand-lg bg-body-tertiary">
+<div class="app-wrapper">
+  <main class="app-main">
+    <div class="app-content-header">
+      <div class="container-fluid">
+        <h3 class="mb-0">系統設定</h3>
+      </div>
+    </div>
+    <div class="app-content">
+      <div class="container-fluid">
+        <div id="settings-alert"></div>
+        <p class="text-secondary">修改後立即儲存，下一次使用時生效（抓取在下一輪、清除在下一次執行），不需重新啟動。
+          資料來源與保留天數的預設值來自 config.json；連接埠、憑證、資料目錄等部署設定只能改 config.json。</p>
+        <div id="settings-groups"></div>
+      </div>
+    </div>
+  </main>
+</div>
+<script nonce="__CSP_NONCE__" src="/vendor/bootstrap-5.3.8/js/bootstrap.bundle.min.js"></script>
+<script nonce="__CSP_NONCE__" src="/vendor/adminlte-4.10.0/js/adminlte.min.js"></script>
+<script nonce="__CSP_NONCE__" type="module" src="/js/admin-settings.js"></script>
+</body>
+</html>

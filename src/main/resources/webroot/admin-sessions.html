@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登入管理 - AiRMS</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/adminlte-4.10.0/css/adminlte.min.css">
+  <link rel="stylesheet" href="/vendor/bootstrap-icons-1.13.2/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/vendor/datatables-3.1.5/css/dataTables.bootstrap5.min.css">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="layout-fixed sidebar-expand-lg bg-body-tertiary">
+<div class="app-wrapper">
+  <main class="app-main">
+    <div class="app-content-header">
+      <div class="container-fluid">
+        <h3 class="mb-0">登入管理</h3>
+      </div>
+    </div>
+    <div class="app-content">
+      <div class="container-fluid">
+        <ul class="nav nav-tabs" role="tablist">
+          <li class="nav-item" role="presentation">
+            <button class="nav-link active" id="tab-online" data-bs-toggle="tab" data-bs-target="#pane-online" type="button" role="tab" aria-controls="pane-online" aria-selected="true">線上使用者</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-logins" data-bs-toggle="tab" data-bs-target="#pane-logins" type="button" role="tab" aria-controls="pane-logins" aria-selected="false">登入紀錄</button>
+          </li>
+          <li class="nav-item" role="presentation">
+            <button class="nav-link" id="tab-audit" data-bs-toggle="tab" data-bs-target="#pane-audit" type="button" role="tab" aria-controls="pane-audit" aria-selected="false">操作紀錄</button>
+          </li>
+        </ul>
+        <div class="tab-content card card-body border-top-0 rounded-top-0">
+          <div id="sessions-alert"></div>
+          <div class="tab-pane fade show active" id="pane-online" role="tabpanel" aria-labelledby="tab-online" tabindex="0">
+            <div class="d-flex mb-2">
+              <p class="text-secondary small mb-0">登入狀態只存在記憶體，程式重新啟動後所有人都需要重新登入。</p>
+              <button type="button" class="btn btn-outline-secondary btn-sm ms-auto" id="reload-online"><i class="bi bi-arrow-clockwise" aria-hidden="true"></i> 重新整理</button>
+            </div>
+            <table id="online" class="table table-striped table-hover w-100">
+              <thead><tr><th>帳號</th><th>顯示名稱</th><th>登入時間</th><th>最後活動</th><th>IP</th><th>瀏覽器</th><th>操作</th></tr></thead>
+            </table>
+          </div>
+          <div class="tab-pane fade" id="pane-logins" role="tabpanel" aria-labelledby="tab-logins" tabindex="0">
+            <form class="row g-2 align-items-end mb-3" id="logins-filter">
+              <div class="col-auto">
+                <label for="l-from" class="form-label">起日</label>
+                <input type="date" class="form-control form-control-sm" id="l-from" required>
+              </div>
+              <div class="col-auto">
+                <label for="l-to" class="form-label">迄日</label>
+                <input type="date" class="form-control form-control-sm" id="l-to" required>
+              </div>
+              <div class="col-auto">
+                <label for="l-user" class="form-label">帳號</label>
+                <input type="text" class="form-control form-control-sm" id="l-user" maxlength="64" placeholder="全部">
+              </div>
+              <div class="col-auto">
+                <label for="l-outcome" class="form-label">結果</label>
+                <select class="form-select form-select-sm" id="l-outcome"><option value="">全部</option></select>
+              </div>
+              <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm" id="logins-submit"><i class="bi bi-search" aria-hidden="true"></i> 查詢</button>
+              </div>
+            </form>
+            <table id="logins" class="table table-striped table-hover w-100">
+              <thead><tr><th>時間</th><th>帳號</th><th>結果</th><th>IP</th><th>瀏覽器</th></tr></thead>
+            </table>
+          </div>
+          <div class="tab-pane fade" id="pane-audit" role="tabpanel" aria-labelledby="tab-audit" tabindex="0">
+            <form class="row g-2 align-items-end mb-3" id="audit-filter">
+              <div class="col-auto">
+                <label for="a-from" class="form-label">起日</label>
+                <input type="date" class="form-control form-control-sm" id="a-from" required>
+              </div>
+              <div class="col-auto">
+                <label for="a-to" class="form-label">迄日</label>
+                <input type="date" class="form-control form-control-sm" id="a-to" required>
+              </div>
+              <div class="col-auto">
+                <button type="submit" class="btn btn-primary btn-sm" id="audit-submit"><i class="bi bi-search" aria-hidden="true"></i> 查詢</button>
+              </div>
+            </form>
+            <table id="audit" class="table table-striped table-hover w-100">
+              <thead><tr><th>時間</th><th>操作者</th><th>動作</th><th>對象</th><th>內容</th><th>IP</th></tr></thead>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<script nonce="__CSP_NONCE__" src="/vendor/bootstrap-5.3.8/js/bootstrap.bundle.min.js"></script>
+<script nonce="__CSP_NONCE__" src="/vendor/datatables-3.1.5/js/dataTables.min.js"></script>
+<script nonce="__CSP_NONCE__" src="/vendor/datatables-3.1.5/js/dataTables.bootstrap5.min.js"></script>
+<script nonce="__CSP_NONCE__" src="/vendor/adminlte-4.10.0/js/adminlte.min.js"></script>
+<script nonce="__CSP_NONCE__" type="module" src="/js/admin-sessions.js"></script>
+</body>
+</html>

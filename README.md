@@ -20,8 +20,9 @@
    或改用環境變數 `AIRMS_TLS_KEYSTORE_PASSWORD`（優先）。
 5. **執行**（工作目錄必須是專案資料夾）：
    - 開發：`gradlew run`
-   - 打包：`gradlew shadowJar` → `build/libs/airms-fat.jar`，執行
-     `java -Duser.timezone=Asia/Taipei -jar build\libs\airms-fat.jar`
+   - 打包：`gradlew shadowJar` → `build/libs/airms-<版本>-fat.jar`（例如 `airms-0.3.0-fat.jar`），執行
+     `java -Duser.timezone=Asia/Taipei -jar build\libs\airms-0.3.0-fat.jar`
+   - 版本號只改 `build.gradle.kts` 的 `version`；啟動完成的 log「AiRMS 0.3.0 已啟動…」與 `service_run` 表都會記錄版本
 6. **建立第一個管理者**：第一次啟動時 log 會印出一組設定碼，30 分鐘內打開
    `https://localhost:8081/setup.html` 輸入設定碼並設定管理者帳號密碼（沒有預設帳密）。
 7. 首頁 `https://localhost:8081/` 顯示三個來源的抓取狀態；即時監視頁 `https://localhost:8081/view2.html`

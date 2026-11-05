@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>初次設定 - AiRMS</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/adminlte-4.10.0/css/adminlte.min.css">
+  <link rel="stylesheet" href="/vendor/bootstrap-icons-1.13.2/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="login-page bg-body-secondary">
+<div class="auth-box">
+  <div class="card card-outline card-warning">
+    <div class="card-header text-center">
+      <span class="auth-title">AiRMS 初次設定</span>
+    </div>
+    <div class="card-body">
+      <p class="text-secondary">系統還沒有任何帳號。請輸入程式啟動時寫在 log 裡的設定碼（30 分鐘內有效），建立第一個管理者帳號。</p>
+      <div id="setup-alert"></div>
+      <form id="setup-form" novalidate>
+        <div class="mb-3">
+          <label for="code" class="form-label">設定碼</label>
+          <input type="text" class="form-control font-monospace" id="code" autocomplete="off" maxlength="64" required autofocus>
+        </div>
+        <div class="mb-3">
+          <label for="username" class="form-label">管理者帳號</label>
+          <input type="text" class="form-control" id="username" autocomplete="username" maxlength="32" required>
+          <div class="form-text">3～32 個英數字，可含 . _ -</div>
+        </div>
+        <div class="mb-3">
+          <label for="display" class="form-label">顯示名稱</label>
+          <input type="text" class="form-control" id="display" maxlength="40" required>
+        </div>
+        <div class="mb-3">
+          <label for="password" class="form-label">密碼</label>
+          <input type="password" class="form-control" id="password" autocomplete="new-password" maxlength="128" required aria-describedby="password-hint">
+          <div class="form-text" id="password-hint"></div>
+        </div>
+        <div class="mb-3">
+          <label for="confirm" class="form-label">再輸入一次密碼</label>
+          <input type="password" class="form-control" id="confirm" autocomplete="new-password" maxlength="128" required>
+        </div>
+        <button type="submit" class="btn btn-warning w-100" id="setup-submit">建立管理者</button>
+      </form>
+    </div>
+  </div>
+</div>
+<script nonce="__CSP_NONCE__" src="/vendor/bootstrap-5.3.8/js/bootstrap.bundle.min.js"></script>
+<script nonce="__CSP_NONCE__" type="module" src="/js/setup.js"></script>
+</body>
+</html>

@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>路網匝道 - AiRMS</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/adminlte-4.10.0/css/adminlte.min.css">
+  <link rel="stylesheet" href="/vendor/bootstrap-icons-1.13.2/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/vendor/datatables-3.1.5/css/dataTables.bootstrap5.min.css">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="layout-fixed sidebar-expand-lg bg-body-tertiary">
+<div class="app-wrapper">
+  <main class="app-main">
+    <div class="app-content-header">
+      <div class="container-fluid">
+        <h3 class="mb-0">路網匝道</h3>
+      </div>
+    </div>
+    <div class="app-content">
+      <div class="container-fluid">
+        <div id="ramps-alert"></div>
+        <div class="callout callout-info mb-3">
+          <p class="mb-1">路網圖上每個匝道圈都可以個別<strong>隱藏</strong>或<strong>修改 RMS 設備代碼</strong>（匝道廢除、新設 RMS、設備改名時使用），不需改程式、不需重新啟動。</p>
+          <p class="mb-0 small text-secondary">隱藏只影響畫面，RMS 資料照常收集保存。修改後，已開著的即時監視畫面重新整理就會生效。「還原」回到路網設定檔的內容。</p>
+        </div>
+        <div class="row g-3 mb-3" id="summary"></div>
+        <div class="card">
+          <div class="card-header">
+            <form class="row g-2 align-items-end" id="filters">
+              <div class="col-auto">
+                <label for="f-freeway" class="form-label mb-1">國道</label>
+                <select class="form-select form-select-sm" id="f-freeway">
+                  <option value="">全部</option><option value="1">國1</option><option value="3">國3</option>
+                </select>
+              </div>
+              <div class="col-auto">
+                <label for="f-dir" class="form-label mb-1">方向</label>
+                <select class="form-select form-select-sm" id="f-dir">
+                  <option value="">全部</option><option value="S">南下</option><option value="N">北上</option>
+                </select>
+              </div>
+              <div class="col-auto">
+                <div class="form-check mb-1">
+                  <input class="form-check-input" type="checkbox" id="f-changed">
+                  <label class="form-check-label" for="f-changed">只看已修改或隱藏的</label>
+                </div>
+              </div>
+            </form>
+          </div>
+          <div class="card-body">
+            <table id="ramps" class="table table-striped table-hover w-100">
+              <thead>
+                <tr><th>路線</th><th>交流道</th><th>里程</th><th>顯示</th><th>RMS 設備代碼</th><th>狀態</th><th>最後修改</th><th>操作</th></tr>
+              </thead>
+            </table>
+          </div>
+        </div>
+
+        <div class="modal fade" id="ramp-modal" tabindex="-1" aria-labelledby="ramp-modal-title" aria-hidden="true">
+          <div class="modal-dialog modal-lg">
+            <form class="modal-content" id="ramp-form" novalidate>
+              <div class="modal-header">
+                <h5 class="modal-title" id="ramp-modal-title">修改匝道圈</h5>
+                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
+              </div>
+              <div class="modal-body">
+                <div id="ramp-form-alert"></div>
+                <div class="form-check form-switch mb-3">
+                  <input class="form-check-input" type="checkbox" role="switch" id="r-visible">
+                  <label class="form-check-label" for="r-visible">在路網圖上顯示這個匝道圈</label>
+                  <div class="form-text" id="r-visible-default"></div>
+                </div>
+                <fieldset class="mb-2">
+                  <legend class="form-label fs-6 fw-semibold">RMS 設備代碼</legend>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="r-mode" id="r-mode-default" value="default">
+                    <label class="form-check-label" for="r-mode-default">使用路網設定檔的設定：<span id="r-default-rms"></span></label>
+                  </div>
+                  <div class="form-check">
+                    <input class="form-check-input" type="radio" name="r-mode" id="r-mode-custom" value="custom">
+                    <label class="form-check-label" for="r-mode-custom">自訂</label>
+                  </div>
+                </fieldset>
+                <div class="mb-2">
+                  <label for="r-rms" class="form-label">自訂代碼（一行一台，最多 3 台；空白表示這個匝道沒有 RMS）</label>
+                  <textarea class="form-control font-monospace" id="r-rms" rows="3" spellcheck="false"></textarea>
+                  <div class="form-text">2 台會把圓圈切成左右兩格，3 台切成上、左下、右下三格，依輸入順序排列。請填完整代碼（含中文名稱部分）。</div>
+                </div>
+                <div class="input-group input-group-sm mb-1" id="r-pick-group">
+                  <label class="input-group-text" for="r-pick">從資料中尚未對應的 RMS 挑選</label>
+                  <select class="form-select" id="r-pick"></select>
+                  <button type="button" class="btn btn-outline-secondary" id="r-pick-add">加入</button>
+                </div>
+              </div>
+              <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">取消</button>
+                <button type="submit" class="btn btn-primary" id="ramp-submit">儲存</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<script nonce="__CSP_NONCE__" src="/vendor/bootstrap-5.3.8/js/bootstrap.bundle.min.js"></script>
+<script nonce="__CSP_NONCE__" src="/vendor/datatables-3.1.5/js/dataTables.min.js"></script>
+<script nonce="__CSP_NONCE__" src="/vendor/datatables-3.1.5/js/dataTables.bootstrap5.min.js"></script>
+<script nonce="__CSP_NONCE__" src="/vendor/adminlte-4.10.0/js/adminlte.min.js"></script>
+<script nonce="__CSP_NONCE__" type="module" src="/js/admin-ramps.js"></script>
+</body>
+</html>

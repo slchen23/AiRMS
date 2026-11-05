@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登入 - AiRMS</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/adminlte-4.10.0/css/adminlte.min.css">
+  <link rel="stylesheet" href="/vendor/bootstrap-icons-1.13.2/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="login-page bg-body-secondary">
+<div class="auth-box">
+  <div class="card card-outline card-primary">
+    <div class="card-header text-center">
+      <a href="/index.html" class="link-dark link-underline-opacity-0 auth-title">AiRMS</a>
+    </div>
+    <div class="card-body">
+      <p class="text-center text-secondary">請登入以使用管理與控制功能</p>
+      <div id="login-alert"></div>
+      <form id="login-form" novalidate>
+        <div class="mb-3">
+          <label for="username" class="form-label">帳號</label>
+          <input type="text" class="form-control" id="username" autocomplete="username" maxlength="64" required autofocus>
+        </div>
+        <div class="mb-3">
+          <label for="password" class="form-label">密碼</label>
+          <input type="password" class="form-control" id="password" autocomplete="current-password" maxlength="128" required>
+        </div>
+        <button type="submit" class="btn btn-primary w-100" id="login-submit">登入</button>
+      </form>
+      <p class="mt-3 mb-0 text-center"><a href="/index.html">回首頁（不需登入即可監視）</a></p>
+      <p class="mt-2 mb-0 text-center d-none" id="setup-link"><a href="/setup.html">尚未建立管理者帳號，前往初次設定</a></p>
+    </div>
+  </div>
+</div>
+<script nonce="__CSP_NONCE__" src="/vendor/bootstrap-5.3.8/js/bootstrap.bundle.min.js"></script>
+<script nonce="__CSP_NONCE__" type="module" src="/js/login.js"></script>
+</body>
+</html>

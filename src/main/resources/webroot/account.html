@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>帳號與密碼 - AiRMS</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/adminlte-4.10.0/css/adminlte.min.css">
+  <link rel="stylesheet" href="/vendor/bootstrap-icons-1.13.2/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/css/app.css">
+</head>
+<body class="layout-fixed sidebar-expand-lg bg-body-tertiary">
+<div class="app-wrapper">
+  <main class="app-main">
+    <div class="app-content-header">
+      <div class="container-fluid">
+        <h3 class="mb-0">帳號與密碼</h3>
+      </div>
+    </div>
+    <div class="app-content">
+      <div class="container-fluid">
+        <div id="must-change"></div>
+        <div class="row g-3">
+          <div class="col-lg-5">
+            <div class="card">
+              <div class="card-header"><h3 class="card-title">我的帳號</h3></div>
+              <div class="card-body">
+                <dl class="row mb-0" id="profile"></dl>
+              </div>
+            </div>
+          </div>
+          <div class="col-lg-7">
+            <div class="card">
+              <div class="card-header"><h3 class="card-title">變更密碼</h3></div>
+              <form id="password-form" class="card-body" novalidate>
+                <div id="password-alert"></div>
+                <div class="mb-3">
+                  <label for="current" class="form-label">目前密碼</label>
+                  <input type="password" class="form-control" id="current" autocomplete="current-password" required maxlength="128">
+                </div>
+                <div class="mb-3">
+                  <label for="next" class="form-label">新密碼</label>
+                  <input type="password" class="form-control" id="next" autocomplete="new-password" required maxlength="128" aria-describedby="password-hint">
+                  <div class="form-text" id="password-hint"></div>
+                </div>
+                <div class="mb-3">
+                  <label for="confirm" class="form-label">再輸入一次新密碼</label>
+                  <input type="password" class="form-control" id="confirm" autocomplete="new-password" required maxlength="128">
+                </div>
+                <button type="submit" class="btn btn-primary" id="password-submit">變更密碼</button>
+                <p class="form-text mt-2 mb-0">變更後，這個帳號在其他電腦上的登入會被登出。</p>
+              </form>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </main>
+</div>
+<script nonce="__CSP_NONCE__" src="/vendor/bootstrap-5.3.8/js/bootstrap.bundle.min.js"></script>
+<script nonce="__CSP_NONCE__" src="/vendor/adminlte-4.10.0/js/adminlte.min.js"></script>
+<script nonce="__CSP_NONCE__" type="module" src="/js/account.js"></script>
+</body>
+</html>

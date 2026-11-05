@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>即時監視 - AiRMS</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/adminlte-4.10.0/css/adminlte.min.css">
+  <link rel="stylesheet" href="/vendor/bootstrap-icons-1.13.2/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/network.css">
+</head>
+<body class="view-page" data-bs-theme="dark">
+  <header class="view-bar">
+    <a class="view-brand" href="/index.html" title="回首頁">AiRMS</a>
+    <span class="view-title">匝道儀控即時監視</span>
+    <button type="button" class="btn btn-danger fw-bold" id="watch-btn">開始監控</button>
+    <label class="view-interval" for="watch-interval">間隔更新時間（秒）
+      <input type="number" class="form-control form-control-sm" id="watch-interval" min="10" max="600" step="1" value="25">
+    </label>
+    <span class="view-status" id="view-status" role="status" aria-live="polite"></span>
+    <span class="ms-auto"></span>
+    <button type="button" class="btn btn-outline-light btn-sm" id="fullscreen-btn" title="全螢幕"><i class="bi bi-arrows-fullscreen" aria-hidden="true"></i></button>
+    <a class="btn btn-outline-light btn-sm" href="/index.html" title="回首頁"><i class="bi bi-house" aria-hidden="true"></i></a>
+  </header>
+  <main class="view-map">
+    <svg id="network" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="匝道儀控路網即時監視圖"></svg>
+  </main>
+<script nonce="__CSP_NONCE__" type="module" src="/js/view2.js"></script>
+</body>
+</html>

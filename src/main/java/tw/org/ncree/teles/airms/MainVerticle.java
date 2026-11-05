@@ -48,7 +48,18 @@ public final class MainVerticle extends VerticleBase {
 
   private static final long HEARTBEAT_MS = 60_000;
   private static final long AUTH_HOUSEKEEPING_MS = 60_000;
-  private static final String APP_VERSION = "0.3.0";
+  /** 程式版本；只在 build.gradle.kts 的 version 維護。 */
+  public static final String APP_VERSION = appVersion();
+
+  /**
+   * 打包後從 jar 的 Implementation-Version 讀；gradlew run 由 -Dairms.version 帶入；
+   * 在 IDE 直接執行主程式（沒經過 Gradle）時兩者都沒有，顯示 dev。
+   */
+  static String appVersion() {
+    String v = MainVerticle.class.getPackage().getImplementationVersion();
+    if (v == null || v.isBlank()) v = System.getProperty("airms.version");
+    return v == null || v.isBlank() ? "dev" : v.trim();
+  }
 
   private AppContext app;
   private HttpServer server;
@@ -86,8 +97,8 @@ public final class MainVerticle extends VerticleBase {
         })
         .compose(v -> deployWorkers())
         .compose(v -> startHttp())
-        .onSuccess(s -> log.info("AiRMS 已啟動：{}://{}:{}/", app.config().http().tlsEnabled() ? "https" : "http",
-            app.config().http().host(), s.actualPort()))
+        .onSuccess(s -> log.info("AiRMS {} 已啟動：{}://{}:{}/", APP_VERSION,
+            app.config().http().tlsEnabled() ? "https" : "http", app.config().http().host(), s.actualPort()))
         .onFailure(e -> log.error("AiRMS 啟動失敗：{}", e.getMessage()))
         .recover(error -> closeResources().transform(ignored -> Future.failedFuture(error)));
   }

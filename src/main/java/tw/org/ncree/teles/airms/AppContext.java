@@ -32,5 +32,5 @@ public record AppContext(
     LiveViewService liveView,
     RampService ramps) {
 
-  public static final String USER_AGENT = "AiRMS/0.3";
+  public static final String USER_AGENT = "AiRMS/" + MainVerticle.APP_VERSION;
 }

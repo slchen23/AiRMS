@@ -57,12 +57,17 @@ tasks.withType<JavaCompile> {
   options.compilerArgs.addAll(listOf("-Xlint:all", "-Xlint:-serial", "-Xlint:-processing"))
 }
 
+// 打包檔名帶版本：build/libs/airms-<version>-fat.jar（例如 airms-0.3.0-fat.jar）。
+// 版本號只改上面的 version；程式從 jar 的 Implementation-Version 讀，啟動 log 與 service_run 都會記。
 tasks.withType<ShadowJar> {
   archiveBaseName.set("airms")
   archiveClassifier.set("fat")
-  archiveVersion.set("")
   manifest {
-    attributes(mapOf("Main-Verticle" to mainVerticleName))
+    attributes(mapOf(
+      "Main-Verticle" to mainVerticleName,
+      "Implementation-Title" to "AiRMS",
+      "Implementation-Version" to project.version.toString()
+    ))
   }
   mergeServiceFiles()
 }
@@ -80,7 +85,7 @@ tasks.named<JavaExec>("run") {
   args = listOf(mainVerticleName)
   jvmArgs(
     "-Dfile.encoding=UTF-8", "-Dsun.stdout.encoding=UTF-8", "-Dsun.stderr.encoding=UTF-8",
-    "-Duser.timezone=Asia/Taipei"
+    "-Duser.timezone=Asia/Taipei", "-Dairms.version=${project.version}"
   )
   workingDir = projectDir
 }
