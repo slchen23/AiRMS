@@ -5,7 +5,9 @@
 
 - 技術：Java 21、Vert.x 5.2.2、SQLite（sqlite-jdbc 3.53.4.0）、Gradle 8.14.5（與 StockVX 一致）
 - 套件：`tw.org.ncree.teles.airms`
-- 目前進度：**P1 — 資料抓取與保存**（見 `docs/P1.md`）
+- 進度：P1 資料抓取與保存（`docs/P1.md`）、P2 帳號系統與管理工具頁（`docs/P2.md`）、
+  **P3 路網設定檔與即時監視頁 view2**（`docs/P3.md`）
+- 前端套件全部放在本機（`docs/vendor.md`），正式機不需要對外網路
 
 ## 第一次在 Windows 上執行
 
@@ -20,7 +22,10 @@
    - 開發：`gradlew run`
    - 打包：`gradlew shadowJar` → `build/libs/airms-fat.jar`，執行
      `java -Duser.timezone=Asia/Taipei -jar build\libs\airms-fat.jar`
-6. 瀏覽 `https://localhost:8081/api/health` 看三個來源的抓取狀態。
+6. **建立第一個管理者**：第一次啟動時 log 會印出一組設定碼，30 分鐘內打開
+   `https://localhost:8081/setup.html` 輸入設定碼並設定管理者帳號密碼（沒有預設帳密）。
+7. 首頁 `https://localhost:8081/` 顯示三個來源的抓取狀態；即時監視頁 `https://localhost:8081/view2.html`
+   （不需登入）。登入後右上角選單進入帳號設定，管理者左側有「使用者管理、登入管理、路網匝道、路網路段、系統設定」。
 
 `config.json`、`secrets.json`、`*.pfx`、資料庫與原始 XML 都已列在 `.gitignore`。
 
@@ -47,6 +52,7 @@ airms-data/
 ├─ .airms-lock        執行中的程式持有的鎖（自動產生）
 ├─ airms.db           路段、RMS 最新與歷史、抓取紀錄、啟停紀錄（歷史依 retention 天數清除）
 ├─ vd_health.db       全部 VD 的車道原值，永久保存
+├─ auth.db            帳號、權限、登入紀錄、操作紀錄
 └─ xml_raw/           三種來源的原始 XML（gzip），永久保存
    ├─ vd/2026/11/02/20261102_160512_<雜湊>.xml.gz
    ├─ section/…
@@ -56,6 +62,7 @@ airms-data/
 - 內容沒變的 XML 不重複存；結構有問題、解析失敗的檔一定會存，當作來源異常的證據。
 - `raw_xml_file` 表記錄每個原始檔的解析結果與問題摘要；`feed_attempt` 記錄每一次抓取。
 - SQLite 檔可直接複製到 Pi（先停止程式），格式跨平台通用。
+- `auth.db` 含帳號密碼雜湊，備份時與其他資料庫一樣要妥善保管。
 
 ## 測試
 
@@ -72,5 +79,8 @@ gradlew test
 | `feeds.section.filter` | 只存國1、國3、起點里程 99000～270000 的路段 |
 | `feeds.rms.filter` | 只存 RMS-N1、RMS-N3 開頭的設備 |
 | `retention.*Days` | 路段/RMS 歷史與抓取紀錄的保留天數；VD 與原始 XML 永久保存 |
+| `networkFile`（選填） | 路網設定檔路徑；不填用程式內建的 `network/network.json`。增減匝道見 `docs/P3.md`；只是隱藏匝道圈或改 RMS 代碼，用管理選單「路網匝道」頁即可 |
 
 設定檔修改後需重新啟動才生效；設定有誤時程式會列出所有錯誤並停止。
+來源的啟用/網址/間隔、保留天數、登入安全設定也可以由管理者在「系統設定」頁修改（立即生效，
+存在 airms.db；按「還原預設」回到 config.json 的值）。

@@ -20,7 +20,8 @@ public record AppConfig(
     FeedHttp feedHttp,
     XmlLimits xmlLimits,
     List<Feed> feeds,
-    Retention retention) {
+    Retention retention,
+    Path networkFile) {
 
   public static final int SUPPORTED_SCHEMA_VERSION = 1;
 
@@ -95,9 +96,10 @@ public record AppConfig(
       boolean enabled = f.getBoolean("enabled", true);
       URI uri = null;
       String url = f.getString("url");
-      if (enabled) {
+      // 停用的來源也可以先填網址（之後在系統設定頁啟用）；有填就檢查格式。
+      if (enabled || (url != null && !url.isBlank())) {
         try {
-          uri = URI.create(url == null ? "" : url);
+          uri = URI.create(url == null ? "" : url.trim());
           String scheme = uri.getScheme() == null ? "" : uri.getScheme().toLowerCase(Locale.ROOT);
           if (!(scheme.equals("https") || scheme.equals("http")) || uri.getHost() == null
               || uri.getRawUserInfo() != null) {
@@ -120,10 +122,16 @@ public record AppConfig(
         intIn(r, "rmsHistoryDays", 760, 1, 36500, "retention.rmsHistoryDays", errors),
         intIn(r, "feedAttemptDays", 90, 1, 36500, "retention.feedAttemptDays", errors));
 
+    // 路網設定檔：不填就用程式內建的 network/network.json；要增減匝道時可指定外部檔案。
+    Object networkFile = json.getValue("networkFile");
+    if (networkFile != null && !(networkFile instanceof String)) errors.add("networkFile 必須是檔案路徑文字");
+    Path network = networkFile instanceof String s && !s.isBlank() ? Path.of(s.trim()) : null;
+
     if (!errors.isEmpty()) {
       throw new IllegalArgumentException("設定檔有誤：\n- " + String.join("\n- ", errors));
     }
-    return new AppConfig(httpCfg, Path.of(secrets), storageCfg, feedHttp, xmlLimits, List.copyOf(feedList), retention);
+    return new AppConfig(httpCfg, Path.of(secrets), storageCfg, feedHttp, xmlLimits, List.copyOf(feedList), retention,
+        network);
   }
 
   private static void validateFilter(FeedKind kind, JsonObject filter, List<String> errors) {

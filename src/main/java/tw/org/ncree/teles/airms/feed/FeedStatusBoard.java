@@ -4,6 +4,7 @@ import io.vertx.core.json.JsonObject;
 import java.time.Instant;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 各來源最近一次抓取的狀態（記憶體內，重啟後重新累積）。
@@ -37,12 +38,15 @@ public final class FeedStatusBoard {
     }
   }
 
-  public synchronized JsonObject summary(Iterable<FeedKind> enabled) {
+  /** 三個來源的摘要；停用的來源標示 DISABLED，不影響整體狀態。 */
+  public synchronized JsonObject summary(Set<FeedKind> enabled) {
     JsonObject out = new JsonObject();
-    for (FeedKind k : enabled) {
+    for (FeedKind k : FeedKind.values()) {
       Entry e = entries.get(k);
-      JsonObject o = new JsonObject();
-      if (e == null) {
+      JsonObject o = new JsonObject().put("label", k.label());
+      if (!enabled.contains(k)) {
+        o.put("state", "DISABLED");
+      } else if (e == null) {
         o.put("state", "WARMING_UP");
       } else {
         o.put("state", e.consecutiveFailures == 0 ? "OK" : "DEGRADED")

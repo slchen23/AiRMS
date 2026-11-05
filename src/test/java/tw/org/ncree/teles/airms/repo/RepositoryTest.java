@@ -121,17 +121,59 @@ class RepositoryTest {
   }
 
   @Test
+  void v4MovesRampSettingsIntoRampOverride() throws Exception {
+    try (Connection c = open("airms.db")) {
+      Schema.migrateAirms(c);
+      // 模擬 v3：匝道開關放在系統設定
+      try (Statement st = c.createStatement()) {
+        st.execute("DROP TABLE ramp_override");
+        st.execute("PRAGMA user_version=3");
+        st.execute("INSERT INTO app_setting VALUES ('ramps.n1-174200-n.visible','{\"v\":true}',5,'admin')");
+        st.execute("INSERT INTO app_setting VALUES ('ramps.n1-174200-n.rmsId','{\"v\":\"RMS-N1-N-174-X\"}',6,'admin')");
+        st.execute("INSERT INTO app_setting VALUES ('ramps.n1-118000-n.visible','{\"v\":false}',3,'bob')");
+        st.execute("INSERT INTO app_setting VALUES ('ramps.n1-118000-n.rmsId','{\"v\":\"\"}',3,'bob')");
+        st.execute("INSERT INTO app_setting VALUES ('auth.lockMinutes','{\"v\":20}',1,'x')");
+      }
+      Schema.migrateAirms(c);
+      assertEquals(4, count(c, "PRAGMA user_version"));
+      assertEquals(1, count(c, "SELECT COUNT(*) FROM app_setting"));          // 只剩非匝道設定
+      assertEquals(1, count(c, "SELECT visible FROM ramp_override WHERE ramp_key='n1-174200-n'"));
+      assertEquals(0, count(c, "SELECT visible FROM ramp_override WHERE ramp_key='n1-118000-n'"));
+      assertEquals(1, count(c, "SELECT COUNT(*) FROM ramp_override WHERE ramp_key='n1-174200-n' "
+          + "AND rms_json='[\"RMS-N1-N-174-X\"]'"));
+      assertEquals(1, count(c, "SELECT COUNT(*) FROM ramp_override WHERE ramp_key='n1-118000-n' AND rms_json IS NULL"));
+    }
+  }
+
+  @Test
+  void authDatabaseHasItsOwnIdentity() throws Exception {
+    try (Connection c = open("auth.db")) {
+      Schema.migrateAuth(c);
+      Schema.migrateAuth(c);
+      assertEquals(1, count(c, "PRAGMA user_version"));
+      assertEquals(Schema.AUTH_APP_ID, count(c, "PRAGMA application_id"));
+      assertEquals(4, count(c, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN "
+          + "('account','account_permission','login_history','audit_log')"));
+      // 帳號 DB 不能拿去當主資料庫用（反之亦然）
+      assertThrows(IllegalStateException.class, () -> Schema.migrateAirms(c));
+    }
+  }
+
+  @Test
   void upgradesVersion1AndTracksRuns() throws Exception {
     try (Connection c = open("airms.db")) {
       Schema.migrateAirms(c);
-      assertEquals(2, count(c, "PRAGMA user_version"));
-      // 模擬 P1 初版建立的 v1 資料庫
+      assertEquals(4, count(c, "PRAGMA user_version"));
+      // 模擬 P1 初版建立的 v1 資料庫（v2 加 service_run、v3 加 app_setting、v4 加 ramp_override）
       try (Statement st = c.createStatement()) {
         st.execute("DROP TABLE service_run");
+        st.execute("DROP TABLE app_setting");
+        st.execute("DROP TABLE ramp_override");
         st.execute("PRAGMA user_version=1");
       }
       Schema.migrateAirms(c);
-      assertEquals(2, count(c, "PRAGMA user_version"));
+      assertEquals(4, count(c, "PRAGMA user_version"));
+      assertEquals(0, count(c, "SELECT COUNT(*) FROM app_setting"));
 
       long r1 = ServiceRunRepository.start(c, 1000, "host", "0.1.0");
       ServiceRunRepository.heartbeat(c, r1, 61000);

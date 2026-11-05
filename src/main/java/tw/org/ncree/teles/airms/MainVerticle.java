@@ -16,6 +16,7 @@ import java.util.List;
 import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import tw.org.ncree.teles.airms.auth.AuthService;
 import tw.org.ncree.teles.airms.config.AppConfig;
 import tw.org.ncree.teles.airms.config.Secrets;
 import tw.org.ncree.teles.airms.db.Db;
@@ -29,24 +30,32 @@ import tw.org.ncree.teles.airms.parse.FeedTime;
 import tw.org.ncree.teles.airms.repo.ServiceRunRepository;
 import tw.org.ncree.teles.airms.repo.VdRepository;
 import tw.org.ncree.teles.airms.retention.RetentionVerticle;
+import tw.org.ncree.teles.airms.settings.SettingsService;
 import tw.org.ncree.teles.airms.storage.DataDirLock;
 import tw.org.ncree.teles.airms.storage.DataVolume;
+import tw.org.ncree.teles.airms.view.LiveViewService;
+import tw.org.ncree.teles.airms.view.LiveViewVerticle;
+import tw.org.ncree.teles.airms.view.NetworkConfig;
+import tw.org.ncree.teles.airms.view.RampService;
 
 /**
- * 啟動順序：讀設定 → 檢查外接硬碟標記檔 → 開兩個資料庫並確認結構 → 啟動三個來源抓取與資料保留 → 開 HTTPS。
+ * 啟動順序：讀設定 → 檢查外接硬碟標記檔 → 開三個資料庫並確認結構 → 載入系統設定與帳號
+ * → 啟動三個來源抓取與資料保留 → 開 HTTPS。
  * 任何一步失敗就停止啟動並釋放已開啟的資源。設定檔路徑可用 -Dairms.config 指定，預設工作目錄的 config.json。
  */
 public final class MainVerticle extends VerticleBase {
   private static final Logger log = LogManager.getLogger(MainVerticle.class);
 
   private static final long HEARTBEAT_MS = 60_000;
-  private static final String APP_VERSION = "0.1.0";
+  private static final long AUTH_HOUSEKEEPING_MS = 60_000;
+  private static final String APP_VERSION = "0.3.0";
 
   private AppContext app;
   private HttpServer server;
   private volatile DataDirLock lock;
   private long runId = -1;
   private long heartbeatTimer = -1;
+  private long housekeepingTimer = -1;
 
   @Override
   public Future<?> start() {
@@ -62,9 +71,19 @@ public final class MainVerticle extends VerticleBase {
           }).compose(v -> app.vdDb().run(c -> {
             Schema.migrateVd(c);
             return null;
+          })).compose(v -> app.authDb().run(c -> {
+            Schema.migrateAuth(c);
+            return null;
           }));
         })
-        .compose(v -> recordRunStart())
+        .compose(v -> app.settings().load())
+        .compose(v -> app.ramps().load())
+        .compose(v -> app.auth().init())
+        .compose(setupCode -> {
+          housekeepingTimer = vertx.setPeriodic(AUTH_HOUSEKEEPING_MS, id -> app.auth().housekeeping());
+          if (setupCode != null) logSetupCode(setupCode);
+          return recordRunStart();
+        })
         .compose(v -> deployWorkers())
         .compose(v -> startHttp())
         .onSuccess(s -> log.info("AiRMS 已啟動：{}://{}:{}/", app.config().http().tlsEnabled() ? "https" : "http",
@@ -74,8 +93,11 @@ public final class MainVerticle extends VerticleBase {
   }
 
   /** worker 執行緒：讀設定、機密，驗證資料目錄，建立元件（不連網、不寫資料）。 */
-  private AppContext build(JsonObject json) {
+  private AppContext build(JsonObject json) throws java.io.IOException {
     AppConfig config = AppConfig.parse(json);
+    NetworkConfig network = NetworkConfig.load(config.networkFile());
+    log.info("路網設定：{}（{} 個節點、{} 個匝道圈、{} 組屏柵線）", network.source(), network.nodeCount(),
+        network.ramps().size(), network.screenlines().size());
     DataVolume volume = DataVolume.verify(config.storage().dataDir(), config.storage().volumeMarker());
     lock = DataDirLock.acquire(volume);
     log.info("資料目錄：{}", volume.root());
@@ -88,8 +110,22 @@ public final class MainVerticle extends VerticleBase {
     }
     Db airms = new Db(vertx, volume.airmsDb(), "airms-db", Db.Durability.NORMAL);
     Db vd = new Db(vertx, volume.vdHealthDb(), "airms-vd-db", Db.Durability.FULL);
-    return new AppContext(config, Clock.systemUTC(), volume, airms, vd, new VdRepository(),
-        archive, new FeedHttpClient(vertx, config.feedHttp()), new FeedStatusBoard());
+    Db authDb = new Db(vertx, volume.authDb(), "airms-auth-db", Db.Durability.FULL);
+    Clock clock = Clock.systemUTC();
+    SettingsService settings = new SettingsService(airms, config, network);
+    AuthService auth = new AuthService(vertx, authDb, settings, clock::millis);
+    LiveViewService liveView = new LiveViewService(airms, vd, settings, network, clock::millis);
+    return new AppContext(config, clock, volume, airms, vd, authDb, new VdRepository(),
+        archive, new FeedHttpClient(vertx, config.feedHttp()), new FeedStatusBoard(), settings, auth, network, liveView,
+        new RampService(airms, network));
+  }
+
+  /** 還沒有任何帳號：把一次性設定碼寫到 log，讓有主機存取權的人建立第一個管理者。 */
+  private void logSetupCode(String code) {
+    AppConfig.Http h = app.config().http();
+    String host = "0.0.0.0".equals(h.host()) || "::".equals(h.host()) ? "localhost" : h.host();
+    log.warn("尚未建立任何帳號。請在 30 分鐘內開啟 {}://{}:{}/setup.html ，輸入設定碼 {} 建立第一個管理者"
+        + "（逾時請重新啟動程式取得新的設定碼）", h.tlsEnabled() ? "https" : "http", host, h.port(), code);
   }
 
   /** 記錄這次啟動；上次若不是正常停止，把停機區間寫進 log，方便對照資料缺口。 */
@@ -114,11 +150,12 @@ public final class MainVerticle extends VerticleBase {
   private Future<Void> deployWorkers() {
     DeploymentOptions opts = new DeploymentOptions().setThreadingModel(ThreadingModel.EVENT_LOOP);
     List<Future<String>> deployments = new ArrayList<>();
+    // 三個來源都部署；停用與否、網址、間隔每一輪由系統設定決定，可在網頁上切換不必重啟。
     for (AppConfig.Feed feed : app.config().feeds()) {
-      if (feed.enabled()) deployments.add(vertx.deployVerticle(new FeedVerticle(app, feed), opts));
-      else log.warn("{} 已在設定中停用", feed.kind().label());
+      deployments.add(vertx.deployVerticle(new FeedVerticle(app, feed), opts));
     }
     deployments.add(vertx.deployVerticle(new RetentionVerticle(app), opts));
+    deployments.add(vertx.deployVerticle(new LiveViewVerticle(app.liveView()), opts));
     return Future.all(deployments).mapEmpty();
   }
 
@@ -157,11 +194,13 @@ public final class MainVerticle extends VerticleBase {
   /** 子 verticle（抓取、保留）由 Vert.x 先行停止並等在途工作結束；這裡關 HTTP、下載用戶端與資料庫。 */
   private Future<Void> closeResources() {
     vertx.cancelTimer(heartbeatTimer);
+    vertx.cancelTimer(housekeepingTimer);
     List<Future<?>> closing = new ArrayList<>();
     if (server != null) closing.add(server.close());
     Future<Void> marked = Future.succeededFuture();
     if (app != null) {
       closing.add(app.feedHttp().close());
+      closing.add(app.auth().close());
       if (runId > 0) {
         marked = app.airmsDb().run(c -> {
           ServiceRunRepository.stop(c, runId, app.clock().millis());
@@ -176,6 +215,7 @@ public final class MainVerticle extends VerticleBase {
       if (app != null) {
         closing.add(app.airmsDb().close());
         closing.add(app.vdDb().close());
+        closing.add(app.authDb().close());
       }
       return Future.join(closing);
     }).eventually(() -> {

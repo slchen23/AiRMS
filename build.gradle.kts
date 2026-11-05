@@ -8,7 +8,7 @@ plugins {
 }
 
 group = "tw.org.ncree.teles.airms"
-version = "0.1.0"
+version = "0.3.0"
 
 repositories {
   mavenCentral()
@@ -33,6 +33,8 @@ dependencies {
   implementation("io.vertx:vertx-config")
 
   implementation("org.xerial:sqlite-jdbc:3.53.4.0")
+  // 密碼雜湊 Argon2id（與 StockVX / EMS 相同；內含 Windows 與 Pi aarch64 原生程式庫）
+  implementation("de.mkammerer:argon2-jvm:2.12")
 
   implementation("org.apache.logging.log4j:log4j-api:$log4jVersion")
   implementation("org.apache.logging.log4j:log4j-core:$log4jVersion")

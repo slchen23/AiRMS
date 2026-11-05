@@ -8,10 +8,10 @@ import java.time.Duration;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import tw.org.ncree.teles.airms.AppContext;
-import tw.org.ncree.teles.airms.config.AppConfig;
+import tw.org.ncree.teles.airms.settings.SettingsService;
 
 /**
- * 依設定天數清除 airms.db 的路段/RMS 歷史與抓取紀錄。VD（vd_health.db）與原始 XML 永久保存，這裡不碰。
+ * 依系統設定的天數清除 airms.db 的路段/RMS 歷史與抓取紀錄。VD（vd_health.db）與原始 XML 永久保存，這裡不碰。
  * 一次只刪一天份的資料、各自一個短交易，不會長時間卡住抓取寫入。
  */
 public final class RetentionVerticle extends VerticleBase {
@@ -51,13 +51,16 @@ public final class RetentionVerticle extends VerticleBase {
   }
 
   public Future<Void> runOnce() {
-    AppConfig.Retention r = app.config().retention();
+    SettingsService s = app.settings();
     long now = app.clock().millis();
-    return purgeByDay("section_history", "feed_time_ms", now - r.sectionHistoryDays() * DAY_MS, 0)
+    long sectionCut = now - s.intValue("retention.sectionHistoryDays") * DAY_MS;
+    long rmsCut = now - s.intValue("retention.rmsHistoryDays") * DAY_MS;
+    long attemptCut = now - s.intValue("retention.feedAttemptDays") * DAY_MS;
+    return purgeByDay("section_history", "feed_time_ms", sectionCut, 0)
         .compose(n -> logDeleted("路段歷史", n))
-        .compose(v -> purgeByDay("rms_history", "feed_time_ms", now - r.rmsHistoryDays() * DAY_MS, 0))
+        .compose(v -> purgeByDay("rms_history", "feed_time_ms", rmsCut, 0))
         .compose(n -> logDeleted("RMS 歷史", n))
-        .compose(v -> purgeByDay("feed_attempt", "started_at_ms", now - r.feedAttemptDays() * DAY_MS, 0))
+        .compose(v -> purgeByDay("feed_attempt", "started_at_ms", attemptCut, 0))
         .compose(n -> logDeleted("抓取紀錄", n));
   }
 

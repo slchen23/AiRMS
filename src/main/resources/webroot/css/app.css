@@ -1,15 +1,195 @@
-body {
-  margin: 0;
-  font-family: "Noto Sans TC", "Microsoft JhengHei", sans-serif;
-  background: #f5f6f8;
-  color: #1f2933;
+/* AiRMS 共用樣式。CSP 不允許 inline style，所有樣式都放在這裡。 */
+:root {
+  --bs-font-sans-serif: "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --bs-body-font-family: var(--bs-font-sans-serif);
 }
 
-.placeholder {
-  max-width: 40rem;
-  margin: 4rem auto;
-  padding: 2rem;
-  background: #fff;
-  border-radius: 8px;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+.brand-link .brand-text {
+  font-weight: 600 !important;
+  letter-spacing: 0.04em;
+}
+
+.sidebar-menu .nav-link.is-pending {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.app-footer {
+  font-size: 0.85rem;
+}
+
+/* 登入、初次設定頁 */
+.auth-box {
+  width: 100%;
+  max-width: 420px;
+}
+
+.auth-box .auth-title {
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+/* 表格 */
+table.dataTable td.text-nowrap,
+table.dataTable th.text-nowrap {
+  white-space: nowrap;
+}
+
+.ua-cell {
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-cell {
+  max-width: 28rem;
+  word-break: break-all;
+  font-size: 0.85rem;
+}
+
+/* 路網匝道：RMS 代碼太長時才換行，有資料／無資料標籤不拆開 */
+.rms-line {
+  min-width: 14rem;
+}
+
+.rms-line + .rms-line {
+  margin-top: 0.15rem;
+}
+
+.perm-badges .badge {
+  margin-right: 0.25rem;
+}
+
+/* 系統設定 */
+.setting-row + .setting-row {
+  border-top: 1px solid var(--bs-border-color);
+}
+
+.setting-row .setting-default {
+  font-size: 0.85rem;
+}
+
+.setting-input-url {
+  min-width: 18rem;
+}
+
+.toast-area {
+  z-index: 1090;
+}
+
+.min-w-0 {
+  min-width: 0;
+}
+
+/* 即時監視頁（view2）：全螢幕黑底 */
+body.view-page {
+  background: #000;
+  color: #fff;
+  min-height: 100vh;
+  margin: 0;
+}
+
+.view-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.4rem 0.75rem;
+  background: #111;
+  border-bottom: 1px solid #333;
+}
+
+.view-brand {
+  color: #ffe600;
+  font-weight: 700;
+  font-size: 1.25rem;
+  letter-spacing: 0.04em;
+  text-decoration: none;
+}
+
+.view-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.view-interval {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  white-space: nowrap;
+}
+
+.view-interval input {
+  width: 5.5rem;
+  text-align: center;
+}
+
+.view-status {
+  font-size: 0.9rem;
+  color: #bbb;
+}
+
+.view-status.is-error {
+  color: #ff6b6b;
+}
+
+.view-map {
+  padding: 0.25rem;
+}
+
+.view-map svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  min-width: 1100px;
+}
+
+.view-map {
+  overflow-x: auto;
+}
+
+/* 路網路段：路網圖固定在上方（寬螢幕），點表格列在圖上標出位置 */
+.section-map {
+  background: #000;
+}
+
+.section-map svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 46vh;
+}
+
+/* .app-main 預設 overflow:auto 但不會自己捲動，會讓 sticky 失效；這頁改由整頁捲動 */
+body.layout-fixed .app-main.sections-main {
+  overflow: visible;
+}
+
+@media (min-width: 992px) {
+  .section-map-card {
+    position: sticky;
+    top: 0.5rem;
+    z-index: 10;
+  }
+}
+
+#sections tbody tr.section-row {
+  cursor: pointer;
+}
+
+/* 選取的列：直接設 box-shadow，蓋過 DataTables 的滑鼠移過底色 */
+#sections tbody tr.is-selected > * {
+  box-shadow: inset 0 0 0 9999px rgba(13, 110, 253, 0.2);
+  font-weight: 600;
+}
+
+#sections tbody tr.is-selected > :first-child {
+  box-shadow: inset 4px 0 0 #0d6efd, inset 0 0 0 9999px rgba(13, 110, 253, 0.2);
+}
+
+.speed-swatch {
+  vertical-align: -3px;
 }

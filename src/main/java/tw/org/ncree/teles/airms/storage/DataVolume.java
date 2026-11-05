@@ -44,6 +44,10 @@ public final class DataVolume {
     return root.resolve("vd_health.db");
   }
 
+  public Path authDb() {
+    return root.resolve("auth.db");
+  }
+
   public Path rawXmlRoot() {
     return root.resolve("xml_raw");
   }

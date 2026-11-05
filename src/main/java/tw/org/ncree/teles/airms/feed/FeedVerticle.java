@@ -5,6 +5,7 @@ import io.vertx.core.Promise;
 import io.vertx.core.VerticleBase;
 import io.vertx.core.WorkerExecutor;
 import java.io.IOException;
+import java.net.URI;
 import java.time.Instant;
 import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
@@ -25,10 +26,13 @@ import tw.org.ncree.teles.airms.repo.SectionRepository;
  * 一個來源一個 verticle。每一輪：下載 → 算雜湊（內容沒變就結束）→ 解析 → 原始檔歸檔 → 寫資料庫 → 記錄。
  * 同一來源同時只有一輪在跑；這一輪完全結束後才排下一輪，不會堆積。
  * 解析失敗的檔也會歸檔，當作來源 XML 結構有問題的證據。
+ * 啟用與否、網址、間隔都在每一輪開始時向系統設定讀取，網頁上修改後下一輪生效。
  */
 public final class FeedVerticle extends VerticleBase {
   private static final Logger log = LogManager.getLogger(FeedVerticle.class);
   private static final long FIRST_RUN_DELAY_MS = 2000;
+  /** 停用期間多久檢查一次是否重新啟用。 */
+  private static final long DISABLED_POLL_MS = 10_000;
 
   private final AppContext app;
   private final AppConfig.Feed feed;
@@ -41,6 +45,8 @@ public final class FeedVerticle extends VerticleBase {
   private boolean stopping;
   private Future<Void> inFlight = Future.succeededFuture();
   private String lastSha;
+  /** 上一次記錄到的啟用狀態，用來只在切換時寫 log。 */
+  private Boolean announcedEnabled;
 
   /** 解析結果：snapshot 與 rejectReason 二選一。 */
   private record Prepared(String sha, Object snapshot, ParseStats stats, String feedTimeRaw,
@@ -60,7 +66,6 @@ public final class FeedVerticle extends VerticleBase {
     return app.airmsDb().run(c -> FeedLogRepository.lastSha(c, kind)).map(sha -> {
       lastSha = sha;
       schedule(FIRST_RUN_DELAY_MS + kind.ordinal() * 1500L);
-      log.info("{} 開始抓取，每 {} 秒一次", kind.label(), feed.intervalSeconds());
       return null;
     });
   }
@@ -80,16 +85,28 @@ public final class FeedVerticle extends VerticleBase {
 
   private void runOnce() {
     if (stopping) return;
+    boolean enabled = app.settings().feedEnabled(kind);
+    URI url = app.settings().feedUrl(kind);
+    if (!enabled || url == null) {
+      if (!Boolean.FALSE.equals(announcedEnabled)) log.warn("{} 已停用抓取（系統設定）", kind.label());
+      announcedEnabled = false;
+      schedule(DISABLED_POLL_MS);
+      return;
+    }
+    if (!Boolean.TRUE.equals(announcedEnabled)) {
+      log.info("{} 開始抓取，每 {} 秒一次", kind.label(), app.settings().feedIntervalSeconds(kind));
+    }
+    announcedEnabled = true;
     Instant started = app.clock().instant();
     Promise<Void> done = Promise.promise();
     inFlight = done.future();
-    app.feedHttp().get(feed.url(), AppContext.USER_AGENT)
+    app.feedHttp().get(url, AppContext.USER_AGENT)
         .transform(ar -> ar.failed() ? onFetchFailure(ar.cause(), started) : process(ar.result(), started))
         .onComplete(ar -> {
           if (ar.failed()) log.error("{} 這一輪處理失敗：{}", kind.label(), clean(ar.cause()));
           done.complete();
           long elapsed = app.clock().millis() - started.toEpochMilli();
-          schedule(feed.intervalSeconds() * 1000L - elapsed);
+          schedule(app.settings().feedIntervalSeconds(kind) * 1000L - elapsed);
         });
   }
 

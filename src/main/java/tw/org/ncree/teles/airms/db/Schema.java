@@ -7,15 +7,16 @@ import java.sql.Statement;
 import java.util.List;
 
 /**
- * 兩個資料庫檔的結構。用 application_id 認檔、user_version 記版本：
+ * 三個資料庫檔（airms.db、vd_health.db、auth.db）的結構。用 application_id 認檔、user_version 記版本：
  * 不認得的檔（別的程式的資料庫、比程式新的版本）一律拒絕，不 DROP、不覆蓋。
  */
 public final class Schema {
   private Schema() { }
 
-  /** 'AiRM' / 'AiVD' 的 ASCII，避免誤開別的 SQLite 檔。 */
+  /** 'AiRM' / 'AiVD' / 'AiAU' 的 ASCII，避免誤開別的 SQLite 檔。 */
   public static final int AIRMS_APP_ID = 0x4169524D;
   public static final int VD_APP_ID = 0x41695644;
+  public static final int AUTH_APP_ID = 0x41694155;
 
 
   /** 路段資料的整數欄位（XML 屬性名稱照原樣當欄名，方便對照原始檔）。 */
@@ -40,7 +41,12 @@ public final class Schema {
       "lane_average_occupancy", "lane_use_rate");
 
   public static void migrateAirms(Connection c) throws Exception {
-    migrate(c, AIRMS_APP_ID, "airms.db", List.of(Schema::createAirmsV1, Schema::airmsV2));
+    migrate(c, AIRMS_APP_ID, "airms.db",
+        List.of(Schema::createAirmsV1, Schema::airmsV2, Schema::airmsV3, Schema::airmsV4));
+  }
+
+  public static void migrateAuth(Connection c) throws Exception {
+    migrate(c, AUTH_APP_ID, "auth.db", List.of(Schema::createAuthV1));
   }
 
   public static void migrateVd(Connection c) throws Exception {
@@ -187,6 +193,97 @@ public final class Schema {
           host              TEXT,
           app_version       TEXT
         )""");
+  }
+
+  /** v3：系統設定頁修改的值。只存「與 config.json 預設不同」的項目，刪除該列即還原預設。 */
+  private static void airmsV3(Statement st) throws SQLException {
+    st.execute("""
+        CREATE TABLE app_setting (
+          setting_key   TEXT PRIMARY KEY,
+          value_json    TEXT    NOT NULL,
+          updated_at_ms INTEGER NOT NULL,
+          updated_by    TEXT    NOT NULL
+        ) WITHOUT ROWID""");
+  }
+
+  /**
+   * v4：「路網匝道」管理頁對個別匝道圈的修改（顯示與否、RMS 代碼）。只存與路網設定檔不同的部分；
+   * visible、rms_json 為 NULL 表示沿用設定檔。也把 v3 時期放在系統設定（ramps.*）的值搬過來。
+   */
+  private static void airmsV4(Statement st) throws SQLException {
+    st.execute("""
+        CREATE TABLE ramp_override (
+          ramp_key      TEXT PRIMARY KEY,
+          visible       INTEGER CHECK (visible IN (0,1)),
+          rms_json      TEXT,
+          updated_at_ms INTEGER NOT NULL,
+          updated_by    TEXT    NOT NULL
+        ) WITHOUT ROWID""");
+    st.execute("""
+        INSERT INTO ramp_override(ramp_key, visible, rms_json, updated_at_ms, updated_by)
+        SELECT k,
+               MAX(CASE WHEN f = 'visible' THEN json_extract(value_json, '$.v') END),
+               MAX(CASE WHEN f = 'rmsId' AND json_extract(value_json, '$.v') <> ''
+                        THEN json_array(json_extract(value_json, '$.v')) END),
+               MAX(updated_at_ms), MAX(updated_by)
+        FROM (SELECT substr(setting_key, 7, instr(substr(setting_key, 7), '.') - 1) AS k,
+                     substr(substr(setting_key, 7), instr(substr(setting_key, 7), '.') + 1) AS f,
+                     value_json, updated_at_ms, updated_by
+              FROM app_setting WHERE setting_key LIKE 'ramps.%')
+        GROUP BY k""");
+    st.execute("DELETE FROM app_setting WHERE setting_key LIKE 'ramps.%'");
+  }
+
+  /**
+   * auth.db：帳號、功能權限、登入紀錄、管理操作紀錄。密碼只存 Argon2id 雜湊；
+   * 登入中的 Session 只放記憶體（重啟後需重新登入），不落地。
+   */
+  private static void createAuthV1(Statement st) throws SQLException {
+    st.execute("""
+        CREATE TABLE account (
+          account_id             INTEGER PRIMARY KEY,
+          username               TEXT    NOT NULL UNIQUE COLLATE NOCASE,
+          display_name           TEXT    NOT NULL,
+          password_hash          TEXT    NOT NULL,
+          role                   TEXT    NOT NULL CHECK (role IN ('ADMIN','USER')),
+          enabled                INTEGER NOT NULL CHECK (enabled IN (0,1)),
+          expires_at_ms          INTEGER,
+          must_change_password   INTEGER NOT NULL DEFAULT 0 CHECK (must_change_password IN (0,1)),
+          failed_count           INTEGER NOT NULL DEFAULT 0,
+          locked_until_ms        INTEGER,
+          last_login_at_ms       INTEGER,
+          password_changed_at_ms INTEGER NOT NULL,
+          created_at_ms          INTEGER NOT NULL,
+          updated_at_ms          INTEGER NOT NULL
+        )""");
+    st.execute("""
+        CREATE TABLE account_permission (
+          account_id INTEGER NOT NULL REFERENCES account(account_id) ON DELETE CASCADE,
+          permission TEXT    NOT NULL,
+          PRIMARY KEY (account_id, permission)
+        ) WITHOUT ROWID""");
+    st.execute("""
+        CREATE TABLE login_history (
+          login_id   INTEGER PRIMARY KEY,
+          at_ms      INTEGER NOT NULL,
+          username   TEXT    NOT NULL,
+          account_id INTEGER,
+          outcome    TEXT    NOT NULL,
+          ip         TEXT,
+          user_agent TEXT
+        )""");
+    st.execute("CREATE INDEX login_history_time ON login_history(at_ms)");
+    st.execute("""
+        CREATE TABLE audit_log (
+          audit_id    INTEGER PRIMARY KEY,
+          at_ms       INTEGER NOT NULL,
+          actor       TEXT    NOT NULL,
+          action      TEXT    NOT NULL,
+          target      TEXT,
+          detail_json TEXT,
+          ip          TEXT
+        )""");
+    st.execute("CREATE INDEX audit_log_time ON audit_log(at_ms)");
   }
 
   private static void createVdV1(Statement st) throws SQLException {

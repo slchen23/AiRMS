@@ -3,14 +3,68 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>AiRMS</title>
-  <link rel="stylesheet" href="css/app.css">
+  <title>首頁 - AiRMS</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/adminlte-4.10.0/css/adminlte.min.css">
+  <link rel="stylesheet" href="/vendor/bootstrap-icons-1.13.2/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/css/app.css">
 </head>
-<body>
-  <main class="placeholder">
-    <h1>AiRMS 新系統</h1>
-    <p>第一階段：資料抓取與保存。監視、控制與下載頁面在後續階段加入。</p>
-    <p>系統狀態：<a href="api/health">api/health</a></p>
+<body class="layout-fixed sidebar-expand-lg bg-body-tertiary">
+<div class="app-wrapper">
+  <main class="app-main">
+    <div class="app-content-header">
+      <div class="container-fluid">
+        <h3 class="mb-0">首頁</h3>
+      </div>
+    </div>
+    <div class="app-content">
+      <div class="container-fluid">
+        <div class="row g-3 mb-3">
+          <div class="col-md-4">
+            <div class="card h-100">
+              <div class="card-body">
+                <h5 class="mb-2"><i class="bi bi-display" aria-hidden="true"></i> 即時監視</h5>
+                <p class="card-text text-secondary">路網圖顯示各路段速度、匝道儀控狀態與屏柵線告警。</p>
+                <a class="btn btn-primary btn-sm" href="/view2.html"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> 開啟即時監視</a>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card h-100">
+              <div class="card-body">
+                <h5 class="mb-2"><i class="bi bi-sliders" aria-hidden="true"></i> AiRMS 控制</h5>
+                <p class="card-text text-secondary">調整敏感度與啟停，需登入且具備權限（建置中）。</p>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-4">
+            <div class="card h-100">
+              <div class="card-body">
+                <h5 class="mb-2"><i class="bi bi-download" aria-hidden="true"></i> 資料下載</h5>
+                <p class="card-text text-secondary">依匝道與時間區間下載儀控時制 CSV（建置中）。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-header"><h3 class="card-title">資料來源狀態</h3></div>
+          <div class="card-body p-0">
+            <div class="table-responsive">
+              <table class="table table-sm table-striped mb-0">
+                <thead>
+                  <tr><th>來源</th><th>狀態</th><th>最後一次抓取</th><th>最後成功</th><th>資料時間</th><th class="text-end">連續失敗</th></tr>
+                </thead>
+                <tbody id="feed-rows"><tr><td colspan="6" class="text-secondary">載入中…</td></tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </main>
+</div>
+<script nonce="__CSP_NONCE__" src="/vendor/bootstrap-5.3.8/js/bootstrap.bundle.min.js"></script>
+<script nonce="__CSP_NONCE__" src="/vendor/adminlte-4.10.0/js/adminlte.min.js"></script>
+<script nonce="__CSP_NONCE__" type="module" src="/js/index.js"></script>
 </body>
 </html>
