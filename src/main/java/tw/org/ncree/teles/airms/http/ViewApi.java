@@ -12,8 +12,8 @@ import tw.org.ncree.teles.airms.view.RampService;
 import tw.org.ncree.teles.airms.view.TrafficRules;
 
 /**
- * 即時監視 API（/api/view/*），只讀。預設不需登入（純監視頁依需求開放）；
- * 系統設定「即時監視需要登入」開啟後，需登入且有「監視」權限。
+ * 即時監視 API（/api/view/*），只讀。系統設定「首頁與即時監視需要登入」開啟（預設）時，
+ * 需登入且有「監視」權限；關閉則不需登入（只適合內網）。
  */
 final class ViewApi {
   static final String REQUIRE_LOGIN = "view.requireLogin";
@@ -57,9 +57,14 @@ final class ViewApi {
     else ctx.next();
   }
 
+  /** 系統設定「首頁與即時監視需要登入」。 */
+  static boolean loginRequired(SettingsService settings) {
+    return settings.boolValue(REQUIRE_LOGIN);
+  }
+
   /** 200 可看、401 需登入、403 沒有權限。頁面守門也用這個判斷。 */
   static int accessStatus(RoutingContext ctx, SettingsService settings) {
-    if (!settings.boolValue(REQUIRE_LOGIN)) return 200;
+    if (!loginRequired(settings)) return 200;
     AuthService.Principal p = Http.principal(ctx);
     if (p == null) return 401;
     return p.account().can(Permission.VIEW) ? 200 : 403;

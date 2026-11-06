@@ -93,16 +93,64 @@ class AuthRulesTest {
   }
 
   @Test
-  void ipThrottleBlocksAfterTwentyFailuresInTenMinutes() {
-    AtomicLong now = new AtomicLong(0);
-    LoginThrottle t = new LoginThrottle(now::get);
-    for (int i = 0; i < LoginThrottle.MAX_FAILURES - 1; i++) t.fail("10.0.0.9");
-    assertFalse(t.blocked("10.0.0.9"));
-    t.fail("10.0.0.9");
-    assertTrue(t.blocked("10.0.0.9"));
-    assertFalse(t.blocked("10.0.0.10"));
-    now.addAndGet(LoginThrottle.WINDOW_MS + 1);
-    assertFalse(t.blocked("10.0.0.9"));
-    t.purge();
+  void loginNameIsLimitedAndCleaned() {
+    assertEquals("admin", LoginInput.normalize("  admin \u3000"));
+    assertEquals("", LoginInput.normalize(null));
+    assertNull(LoginInput.check("admin"));
+    assertNull(LoginInput.check("a".repeat(50)));                       // 剛好 50 個字
+    assertNotNull(LoginInput.check("a".repeat(51)));
+    assertNotNull(LoginInput.check("ad\u0000min"));                    // 控制字元
+    assertNotNull(LoginInput.check("ad\u001bmin"));                    // ESC
+    assertNotNull(LoginInput.check("ad\u200Bmin"));                    // 零寬空白（格式控制）
+    assertNotNull(LoginInput.check("ad\u202Emin"));                    // 方向覆寫（格式控制）
+    assertNotNull(LoginInput.check("ad\u2028min"));                    // 行分隔
+    assertNotNull(LoginInput.check("ad\uD800min"));                    // 落單代理字元
+    assertNotNull(LoginInput.check("ad\uE000min"));                    // 私用區
+    assertNull(LoginInput.check("管理者"));                              // 一般文字可輸入（只是不會有這種帳號）
+    // 紀錄用：不允許的字元換成 ?，過長截斷
+    assertEquals("ad?min", LoginInput.forLog("ad\u0000min"));
+    assertEquals("a".repeat(50) + "…", LoginInput.forLog("a".repeat(80)));
+    assertEquals("x".repeat(49) + "…", LoginInput.forLog("x".repeat(49) + "\uD83D\uDE00"));  // 不切斷表情符號
+  }
+
+  @Test
+  void accountCooldownCountsFailuresInSlidingWindow() {
+    LoginProtection p = new LoginProtection();
+    long w = 300_000;
+    // 300 秒內第 5 次才冷卻
+    for (int i = 0; i < 4; i++) assertFalse(p.recordFailure(1, i * 10_000L, 5, w));
+    assertTrue(p.recordFailure(1, 40_000, 5, w));
+    assertEquals(0, p.count(1, 40_000, w));                             // 開始冷卻後重新計算
+    // 分散在 300 秒以外的不算：0、100、200、300 秒各一次，第 350 秒時視窗內只有 4 次
+    for (long t : new long[] {1_000_000, 1_100_000, 1_200_000, 1_300_000}) assertFalse(p.recordFailure(2, t, 5, w));
+    assertFalse(p.recordFailure(2, 1_350_000, 5, w));
+    assertTrue(p.recordFailure(2, 1_360_000, 5, w));                    // 100～360 秒共 5 次
+    // 帳號互不影響、成功或解除時清除
+    assertFalse(p.recordFailure(3, 0, 5, w));
+    assertEquals(1, p.count(3, 0, w));
+    p.clear(3);
+    assertEquals(0, p.count(3, 0, w));
+    p.recordFailure(4, 0, 5, w);
+    p.purge(w, w);
+    assertEquals(0, p.count(4, w, w));
+  }
+
+  @Test
+  void normalAccountGetsOnlyOneSession() {
+    AtomicLong now = new AtomicLong(1_000_000);
+    SessionRegistry r = new SessionRegistry(now::get);
+    long idle = 30 * 60_000L;
+    SessionRegistry.Exclusive first = r.createExclusive(7, "10.0.0.1", "a", idle, null);
+    assertNotNull(first.created());
+    SessionRegistry.Exclusive second = r.createExclusive(7, "10.0.0.2", "b", idle, null);
+    assertNull(second.created());
+    assertEquals("10.0.0.1", second.conflict().ip());
+    // 同一個瀏覽器（帶著原本的登入）重新登入不算別處
+    assertNotNull(r.createExclusive(7, "10.0.0.1", "a", idle, first.created().token()).created());
+    // 原本的登入閒置逾時後，別處可以登入
+    SessionRegistry r2 = new SessionRegistry(now::get);
+    r2.createExclusive(8, "10.0.0.1", "a", idle, null);
+    now.addAndGet(idle + 1);
+    assertNotNull(r2.createExclusive(8, "10.0.0.2", "b", idle, null).created());
   }
 }

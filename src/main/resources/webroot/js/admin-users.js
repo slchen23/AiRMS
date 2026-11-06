@@ -27,7 +27,7 @@ function statusList(u) {
   const s = [];
   if (!u.enabled) s.push(['secondary', '停用']);
   if (u.expiresAt && u.expiresAt <= now) s.push(['secondary', '已過期']);
-  if (u.lockedUntil && u.lockedUntil > now) s.push(['danger', `鎖定至 ${fmtTime(u.lockedUntil)}`]);
+  if (u.lockedUntil && u.lockedUntil > now) s.push(['danger', `密碼錯誤過多，冷卻至 ${fmtTime(u.lockedUntil)}`]);
   if (u.mustChangePassword) s.push(['warning', '需改密碼']);
   if (!s.length) s.push(['success', '正常']);
   return s;
@@ -77,7 +77,7 @@ const table = new DataTable('#users', {
         }, h('i', { class: `bi bi-${ic}`, 'aria-hidden': 'true' }), ` ${label}`);
         const items = [btn('edit', 'outline-primary', 'pencil', '編輯')];
         if (row.id !== me.id) items.push(btn('reset', 'outline-warning', 'key', '重設密碼'));
-        if (row.lockedUntil && row.lockedUntil > Date.now()) items.push(btn('unlock', 'outline-danger', 'unlock', '解鎖'));
+        if (row.lockedUntil && row.lockedUntil > Date.now()) items.push(btn('unlock', 'outline-danger', 'unlock', '解除冷卻'));
         td.replaceChildren(...items);
       },
     },
@@ -199,10 +199,10 @@ $('#users').addEventListener('click', async (ev) => {
     $('#reset-target').textContent = `帳號：${user.username}（${user.displayName}）`;
     resetModal.show();
   } else if (b.dataset.action === 'unlock') {
-    if (!await confirmDialog('解除鎖定', `確定要解除 ${user.username} 的鎖定？`, '解除鎖定', 'primary')) return;
+    if (!await confirmDialog('解除冷卻', `確定要讓 ${user.username} 立即可以再登入？`, '解除冷卻', 'primary')) return;
     try {
       await api('POST', `/api/admin/users/${user.id}/unlock`);
-      toast(`已解除 ${user.username} 的鎖定`);
+      toast(`已解除 ${user.username} 的登入冷卻`);
       await reload();
     } catch (e) {
       fail(e);

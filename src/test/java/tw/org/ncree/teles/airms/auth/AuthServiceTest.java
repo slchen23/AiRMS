@@ -82,6 +82,16 @@ class AuthServiceTest {
     }
   }
 
+  /** 預期失敗並回傳錯誤訊息。 */
+  static String message(Future<?> f) throws Exception {
+    try {
+      await(f);
+    } catch (AuthException e) {
+      return e.getMessage();
+    }
+    throw new AssertionError("預期失敗但成功了");
+  }
+
   /** 預期失敗並回傳 HTTP 狀態碼。 */
   static int status(Future<?> f) throws Exception {
     try {
@@ -144,30 +154,106 @@ class AuthServiceTest {
       assertEquals(409, status(env.auth.createAccount(admin, "OP1", "x", Account.Role.USER, true, null,
           Set.of(), "Temp-pass-001", IP)));
 
-      for (int i = 0; i < 5; i++) assertEquals(401, status(env.auth.login("op1", "Wrong-pass-123", IP, "t")));
-      // 已鎖定：正確密碼也不能登入
+      // 300 秒內錯 5 次 → 冷卻 60 秒（預設）
+      for (int i = 0; i < 5; i++) {
+        assertEquals(401, status(env.auth.login("op1", "Wrong-pass-123", IP, "t")));
+        env.now.addAndGet(10_000);
+      }
+      // 冷卻中：正確密碼也不能登入，而且一直重試不會延長冷卻
+      for (int i = 0; i < 4; i++) {
+        assertEquals(401, status(env.auth.login("op1", "Temp-pass-001", IP, "t")));
+        env.now.addAndGet(5_000);
+      }
+      env.now.addAndGet(29_000);                                   // 第 5 次錯誤後 59 秒：還在冷卻
       assertEquals(401, status(env.auth.login("op1", "Temp-pass-001", IP, "t")));
-      // 鎖定時間（預設 15 分鐘）過後自動解除
-      env.now.addAndGet(16 * 60_000L);
-      assertNotNull(await(env.auth.login("op1", "Temp-pass-001", IP, "t")).token());
+      env.now.addAndGet(1_000);                                    // 滿 60 秒：解除（中間的重試沒有延長）
+      String token = await(env.auth.login("op1", "Temp-pass-001", IP, "t")).token();
+      assertNotNull(token);
+      env.auth.logout(token);
 
+      // 錯誤分散在 300 秒以外不會冷卻
+      for (int i = 0; i < 6; i++) {
+        assertEquals(401, status(env.auth.login("op1", "Wrong-pass-123", IP, "t")));
+        env.now.addAndGet(80_000);
+      }
+      token = await(env.auth.login("op1", "Temp-pass-001", IP, "t")).token();
+      env.auth.logout(token);
+
+      // 管理者可手動解除冷卻
       for (int i = 0; i < 5; i++) status(env.auth.login("op1", "Wrong-pass-123", IP, "t"));
       assertEquals(401, status(env.auth.login("op1", "Temp-pass-001", IP, "t")));
       await(env.auth.unlock(admin, op.id(), IP));
       assertNotNull(await(env.auth.login("op1", "Temp-pass-001", IP, "t")).token());
+
+      JsonArray logins = await(env.auth.loginHistory(0, Long.MAX_VALUE, "op1", "BAD_PASSWORD_LOCKED"));
+      assertEquals(2, logins.size());
     }
   }
 
   @Test
-  void ipIsThrottledAfterManyFailures() throws Exception {
+  void noIpLockAndLoginNameIsChecked() throws Exception {
     try (Env env = new Env()) {
       env.admin();
-      for (int i = 0; i < LoginThrottle.MAX_FAILURES; i++) {
-        status(env.auth.login("user" + i, "Wrong-pass-123", "10.9.9.9", "t"));
+      // 同一來源亂試很多不同帳號，不會擋住同一來源的其他人（不依 IP 鎖定）
+      for (int i = 0; i < 30; i++) status(env.auth.login("user" + i, "Wrong-pass-123", "127.0.0.1", "t"));
+      assertNotNull(await(env.auth.login("admin", ADMIN_PW, "127.0.0.1", "t")).token());
+      // 帳號名稱：超過 50 字或含控制字元直接拒絕，紀錄裡已清理
+      assertEquals(400, status(env.auth.login("a".repeat(51), "x", IP, "t")));
+      assertEquals(400, status(env.auth.login("adm\u0000in", "x", IP, "t")));
+      assertEquals(400, status(env.auth.login("  ", "x", IP, "t")));
+      JsonArray bad = await(env.auth.loginHistory(0, Long.MAX_VALUE, null, "INVALID_INPUT"));
+      assertEquals(2, bad.size());
+      assertTrue(bad.stream().map(o -> ((JsonObject) o).getString("username")).anyMatch("adm?in"::equals));
+      // 帳號不存在、密碼錯、冷卻中都是同一句話
+      String unknown = message(env.auth.login("nobody", "Wrong-pass-123", IP, "t"));
+      String wrong = message(env.auth.login("admin", "Wrong-pass-123", IP, "t"));
+      assertEquals(unknown, wrong);
+      assertTrue(wrong.contains("5 分鐘內錯誤 5 次") && wrong.contains("60 秒"), wrong);
+    }
+  }
+
+  @Test
+  void normalAccountCanOnlyBeLoggedInOnceAdminUnlimited() throws Exception {
+    try (Env env = new Env()) {
+      AuthService.Principal admin = env.admin();
+      await(env.auth.createAccount(admin, "op1", "操作員", Account.Role.USER, true, null, Set.of(), "Temp-pass-001", IP));
+      AuthService.LoginOk first = await(env.auth.login("op1", "Temp-pass-001", "10.0.0.1", "pc1"));
+      // 第二台：拒絕，訊息說明在哪裡登入
+      String msg = message(env.auth.login("op1", "Temp-pass-001", "10.0.0.2", "pc2"));
+      assertTrue(msg.contains("已在其他地方登入") && msg.contains("10.0.0.1"), msg);
+      assertEquals(409, status(env.auth.login("op1", "Temp-pass-001", "10.0.0.2", "pc2")));
+      assertNotNull(env.auth.authenticate(first.token()));                // 原本的不受影響
+      // 密碼錯時不透露是否已登入
+      assertEquals(401, status(env.auth.login("op1", "Wrong-pass-123", "10.0.0.2", "pc2")));
+      // 同一個瀏覽器重新登入可以，舊的換成新的
+      AuthService.LoginOk again = await(env.auth.login("op1", "Temp-pass-001", "10.0.0.1", "pc1", first.token()));
+      assertNull(env.auth.authenticate(first.token()));
+      // 登出後，別處就能登入
+      env.auth.logout(again.token());
+      AuthService.LoginOk pc2 = await(env.auth.login("op1", "Temp-pass-001", "10.0.0.2", "pc2"));
+      // 管理者強制登出後也可以
+      String pid = pc2.principal().session().publicId();
+      await(env.auth.revokeSession(admin, pid, IP));
+      assertNotNull(await(env.auth.login("op1", "Temp-pass-001", "10.0.0.3", "pc3")).token());
+      // 閒置逾時（預設 30 分鐘）後也可以
+      env.now.addAndGet(31 * 60_000L);
+      assertNotNull(await(env.auth.login("op1", "Temp-pass-001", "10.0.0.4", "pc4")).token());
+      // 管理者不限
+      assertNotNull(await(env.auth.login("admin", ADMIN_PW, "10.0.0.5", "x")).token());
+      assertNotNull(await(env.auth.login("admin", ADMIN_PW, "10.0.0.6", "y")).token());
+      assertEquals(2, await(env.auth.loginHistory(0, Long.MAX_VALUE, "op1", "ALREADY_LOGGED_IN")).size());
+    }
+  }
+
+  @Test
+  void setupCodeIsVoidedAfterTooManyWrongTries() throws Exception {
+    try (Env env = new Env()) {
+      String code = await(env.auth.init());
+      for (int i = 0; i < AuthService.SETUP_MAX_FAILURES - 1; i++) {
+        assertEquals(403, status(env.auth.setup("wrong" + i, "admin", "系統管理者", ADMIN_PW, IP)));
       }
-      assertEquals(429, status(env.auth.login("admin", ADMIN_PW, "10.9.9.9", "t")));
-      // 其他來源不受影響
-      assertNotNull(await(env.auth.login("admin", ADMIN_PW, "10.9.9.8", "t")).token());
+      assertEquals(410, status(env.auth.setup("wrong-last", "admin", "系統管理者", ADMIN_PW, IP)));
+      assertEquals(410, status(env.auth.setup(code, "admin", "系統管理者", ADMIN_PW, IP)));  // 正確的也不行了
     }
   }
 

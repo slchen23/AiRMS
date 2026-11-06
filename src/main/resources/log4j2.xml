@@ -26,6 +26,8 @@
   </Appenders>
   <Loggers>
     <Logger name="tw.org.ncree.teles.airms" level="info" additivity="true"/>
+    <!-- 啟動失敗由 MainVerticle 自己記錄（設定問題只印訊息）；關掉啟動器重複印出的錯誤堆疊 -->
+    <Logger name="io.vertx.launcher.application.VertxApplication" level="off" additivity="false"/>
     <Root level="warn">
       <AppenderRef ref="asyncLog"/>
     </Root>

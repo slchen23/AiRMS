@@ -3,6 +3,7 @@ package tw.org.ncree.teles.airms;
 import java.time.Clock;
 import tw.org.ncree.teles.airms.auth.AuthService;
 import tw.org.ncree.teles.airms.config.AppConfig;
+import tw.org.ncree.teles.airms.config.TlsKeystore;
 import tw.org.ncree.teles.airms.db.Db;
 import tw.org.ncree.teles.airms.feed.FeedHttpClient;
 import tw.org.ncree.teles.airms.feed.FeedStatusBoard;
@@ -30,7 +31,8 @@ public record AppContext(
     AuthService auth,
     NetworkConfig network,
     LiveViewService liveView,
-    RampService ramps) {
+    RampService ramps,
+    TlsKeystore.Cert tlsCert) {
 
   public static final String USER_AGENT = "AiRMS/" + MainVerticle.APP_VERSION;
 }

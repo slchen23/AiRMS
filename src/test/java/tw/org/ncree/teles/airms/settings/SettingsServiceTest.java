@@ -56,7 +56,7 @@ class SettingsServiceTest {
       await(s.load());
       assertEquals("VD-N1-S-249.200-M-LOOP", s.stringValue(SettingsService.screenlineKey("n1-250-s", "vdId")));
       assertEquals(4200, s.intValue(SettingsService.screenlineKey("n1-250-s", "volLimit")));
-      assertFalse(s.boolValue("view.requireLogin"));
+      assertTrue(s.boolValue("view.requireLogin"));          // 預設首頁與即時監視都要登入
       assertTrue(invalid(s.update(SettingsService.screenlineKey("n1-250-s", "vdId"), "N1 246", "admin", 1))
           .contains("VD-"));
       await(s.update(SettingsService.screenlineKey("n1-250-s", "vdId"), " VD-N1-S-246.150-M-RS ", "admin", 1));
@@ -143,6 +143,7 @@ class SettingsServiceTest {
       String key = SettingsService.SPEED_THRESHOLDS;
       assertEquals(TrafficRules.SpeedSteps.DEFAULT, s.speedSteps());
       assertEquals(10 * 60_000L, s.sectionStaleMs());
+      assertEquals(90, s.intValue(SettingsService.TLS_EXPIRY_WARNING_DAYS));   // 憑證到期前 90 天開始提醒
 
       // 逗號、頓號、空白都可分隔，存成統一格式；四個一起改不會卡在「由小到大」
       await(s.update(key, "30、50 70,90", "admin", 1));

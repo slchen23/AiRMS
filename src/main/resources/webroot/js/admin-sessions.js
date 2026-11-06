@@ -12,12 +12,14 @@ const pageAlert = $('#sessions-alert');
 const OUTCOME = {
   SUCCESS: ['success', '成功'],
   BAD_PASSWORD: ['warning', '密碼錯誤'],
-  BAD_PASSWORD_LOCKED: ['danger', '密碼錯誤，帳號已鎖定'],
+  BAD_PASSWORD_LOCKED: ['danger', '密碼錯誤，開始冷卻'],
   UNKNOWN_USER: ['warning', '帳號不存在'],
-  LOCKED: ['danger', '帳號鎖定中'],
+  LOCKED: ['danger', '冷卻中（未檢查密碼）'],
   DISABLED: ['secondary', '帳號已停用'],
   EXPIRED: ['secondary', '帳號已過期'],
-  IP_BLOCKED: ['danger', '來源暫停（嘗試過多）'],
+  ALREADY_LOGGED_IN: ['secondary', '已在其他地方登入，拒絕'],
+  INVALID_INPUT: ['warning', '帳號格式不正確'],
+  IP_BLOCKED: ['danger', '來源暫停（舊版紀錄）'],
 };
 
 const ACTION = {
@@ -26,7 +28,7 @@ const ACTION = {
   USER_UPDATE: '修改帳號',
   PASSWORD_RESET: '重設密碼',
   PASSWORD_CHANGE: '變更自己的密碼',
-  USER_UNLOCK: '解除鎖定',
+  USER_UNLOCK: '解除登入冷卻',
   SESSION_REVOKE: '強制登出',
   SETTING_UPDATE: '修改系統設定',
   SETTING_RESET: '設定還原預設',

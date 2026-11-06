@@ -22,6 +22,8 @@ import java.util.concurrent.ConcurrentHashMap;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import tw.org.ncree.teles.airms.AppContext;
+import tw.org.ncree.teles.airms.settings.SettingsService;
+import tw.org.ncree.teles.airms.config.TlsKeystore;
 import tw.org.ncree.teles.airms.auth.AuthService;
 import tw.org.ncree.teles.airms.feed.FeedKind;
 
@@ -78,6 +80,11 @@ public final class WebServer {
     AuthService.Principal p = Http.principal(ctx);
     if (path.equals("/setup.html")) {
       if (!app.auth().setupNeeded()) return redirect(ctx, "/login.html");
+      return true;
+    }
+    if (path.equals("/") || path.equals("/index.html")) {
+      // 首頁顯示資料來源狀態；「首頁與即時監視需要登入」開啟時要先登入（任何帳號都可看）
+      if (p == null && ViewApi.loginRequired(app.settings())) return redirect(ctx, "/login.html?next=%2Findex.html");
       return true;
     }
     if (path.equals("/view2.html")) {
@@ -138,12 +145,30 @@ public final class WebServer {
     ctx.next();
   }
 
+  /**
+   * 健康狀態。需要登入時，未登入只回整體狀態（給外部監測用），各來源細節與憑證資訊要登入才看得到。
+   */
   private static void health(RoutingContext ctx, AppContext app) {
     Set<FeedKind> enabled = EnumSet.noneOf(FeedKind.class);
     for (FeedKind k : FeedKind.values()) if (app.settings().feedEnabled(k)) enabled.add(k);
     JsonObject feeds = app.feedStatus().summary(enabled);
     boolean degraded = feeds.stream().anyMatch(e -> "DEGRADED".equals(((JsonObject) e.getValue()).getString("state")));
-    Http.json(ctx, 200, new JsonObject().put("status", degraded ? "DEGRADED" : "OK").put("feeds", feeds));
+    JsonObject out = new JsonObject().put("status", degraded ? "DEGRADED" : "OK");
+    if (Http.principal(ctx) == null && ViewApi.loginRequired(app.settings())) {
+      Http.json(ctx, 200, out);
+      return;
+    }
+    out.put("feeds", feeds);
+    TlsKeystore.Cert cert = app.tlsCert();
+    if (cert != null) {
+      // 憑證到期日本來就公開在 TLS 連線中，可以給未登入的首頁顯示
+      java.time.Instant now = app.clock().instant();
+      long left = cert.daysLeft(now);
+      int warn = app.settings().intValue(SettingsService.TLS_EXPIRY_WARNING_DAYS);
+      out.put("tls", new JsonObject().put("notAfter", cert.notAfterText()).put("daysLeft", left)
+          .put("state", cert.expired(now) ? "EXPIRED" : left < warn ? "EXPIRING" : "OK"));
+    }
+    Http.json(ctx, 200, out);
   }
 
   private static void html(RoutingContext ctx, Map<String, String> cache) {

@@ -1,5 +1,5 @@
 // 即時監視頁 view2：開頁時畫路網並載入一次資料；按「開始監控」後依間隔定時更新（同舊 view.html）。
-import { api, fmtTime } from './common.js';
+import { api, fmtTime, handleAuthError } from './common.js';
 import { renderNetwork } from './network-svg.js';
 
 const MIN_INTERVAL = 10;
@@ -42,6 +42,8 @@ async function refresh() {
     });
     setStatus(timer ? `監控中，每 ${currentInterval()} 秒更新` : '已載入最新資料（未啟動定時更新）');
   } catch (e) {
+    // 需要登入時（例如閒置過久或程式重新啟動後登入失效）轉到登入頁，登入後回到這裡
+    if (handleAuthError(e)) return;
     setStatus(`更新失敗：${e.message}`, true);
   } finally {
     loading = false;
@@ -86,6 +88,7 @@ document.getElementById('fullscreen-btn').addEventListener('click', () => {
     view = renderNetwork(svg, net);
     await refresh();
   } catch (e) {
+    if (handleAuthError(e)) return;
     setStatus(`無法載入路網設定：${e.message}`, true);
   }
 })();

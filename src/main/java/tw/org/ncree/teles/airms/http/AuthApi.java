@@ -101,7 +101,9 @@ final class AuthApi {
 
   private void login(RoutingContext ctx) {
     JsonObject b = Http.body(ctx);
-    Http.respond(ctx, auth.login(Http.str(b, "username"), Http.str(b, "password"), Http.ip(ctx), Http.userAgent(ctx)),
+    Cookie current = ctx.request().getCookie(COOKIE);
+    Http.respond(ctx, auth.login(Http.str(b, "username"), Http.str(b, "password"), Http.ip(ctx), Http.userAgent(ctx),
+            current == null ? null : current.getValue()),
         ok -> {
           ctx.response().addCookie(Cookie.cookie(COOKIE, ok.token()).setHttpOnly(true).setSecure(secureCookie)
               .setSameSite(CookieSameSite.STRICT).setPath("/"));

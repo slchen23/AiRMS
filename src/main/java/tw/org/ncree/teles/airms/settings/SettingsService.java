@@ -31,6 +31,7 @@ public final class SettingsService {
   /** SPEED_STEPS：路段速度分級的 4 個門檻，存成「20, 40, 60, 80」這樣的文字。 */
   public enum Type { BOOL, INT, URL, VD_ID, SPEED_STEPS }
 
+  public static final String TLS_EXPIRY_WARNING_DAYS = "tls.expiryWarningDays";
   public static final String SPEED_THRESHOLDS = "speed.thresholds";
   public static final String SPEED_LOW_NO_VOLUME = "speed.lowSpeedNoVolumeAsNoData";
   public static final String SPEED_STALE_MINUTES = "speed.staleMinutes";
@@ -80,10 +81,18 @@ public final class SettingsService {
         r.feedAttemptDays(), "每一次抓取的紀錄"));
     add(new Def("auth.sessionIdleMinutes", "登入安全", "閒置自動登出（分鐘）", Type.INT, 5, 720, 30,
         "超過這段時間沒有操作就需要重新登入"));
-    add(new Def("auth.maxFailedLogins", "登入安全", "密碼錯誤幾次鎖定", Type.INT, 3, 20, 5, "連續錯誤達到次數就鎖定帳號"));
-    add(new Def("auth.lockMinutes", "登入安全", "鎖定時間（分鐘）", Type.INT, 1, 1440, 15, "管理者也可以在使用者管理頁手動解鎖"));
-    add(new Def("view.requireLogin", "即時監視", "即時監視需要登入", Type.BOOL, 0, 1, false,
-        "開啟後 view2 需要登入且有「監視」權限；預設不需登入"));
+    add(new Def("auth.maxFailedLogins", "登入安全", "密碼錯誤幾次後冷卻", Type.INT, 3, 20, 5,
+        "同一帳號在「錯誤次數計算期間」內密碼錯誤達到這個次數，就暫停該帳號登入一段時間（冷卻）；不依來源 IP 鎖定"));
+    add(new Def("auth.failureWindowSeconds", "登入安全", "錯誤次數計算期間（秒）", Type.INT, 30, 3600, 300,
+        "只計算最近這段時間內的密碼錯誤"));
+    add(new Def("auth.cooldownSeconds", "登入安全", "冷卻時間（秒）", Type.INT, 10, 86400, 60,
+        "冷卻期間再嘗試登入不會延長冷卻；管理者也可以在使用者管理頁手動解除"));
+    add(new Def("view.requireLogin", "即時監視", "首頁與即時監視需要登入", Type.BOOL, 0, 1, true,
+        "開啟（預設）時，首頁需要登入，即時監視 view2 需要登入且有「監視」權限；"
+            + "關閉則兩者都不需登入，只適合放在內網、沒有對外開放時"));
+    add(new Def(TLS_EXPIRY_WARNING_DAYS, "HTTPS 憑證", "到期前幾天開始提醒", Type.INT, 7, 3650, 90,
+        "憑證剩下的天數少於這個值時，首頁顯示提醒、log 每天記一次警告。憑證本身的有效期限在產生時決定"
+            + "（tools/tls/new-cert 預設 10 年）"));
     String sg = "路段速度顏色";
     add(new Def(SPEED_THRESHOLDS, sg, "速度分級門檻（公里/小時）", Type.SPEED_STEPS, 1, SPEED_MAX, "20, 40, 60, 80",
         "4 個數字由小到大、以逗號分隔：≤第 1 個紫、≤第 2 個紅、≤第 3 個橘、≤第 4 個黃，其餘綠。全線統一，顏色固定，圖例自動跟著改"));

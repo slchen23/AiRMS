@@ -29,6 +29,10 @@ import tw.org.ncree.teles.airms.settings.SettingsService;
 public final class AuthService {
   private static final Logger log = LogManager.getLogger(AuthService.class);
   private static final long SETUP_TTL_MS = 30 * 60 * 1000L;
+  /** 設定碼輸錯這麼多次就作廢（不依 IP 計算），要重新啟動程式取得新的設定碼。 */
+  static final int SETUP_MAX_FAILURES = 10;
+  private static final java.time.format.DateTimeFormatter TIME =
+      java.time.format.DateTimeFormatter.ofPattern("MM/dd HH:mm").withZone(java.time.ZoneId.of("Asia/Taipei"));
 
   /** 一次請求的登入身分。 */
   public record Principal(SessionRegistry.Session session, Account account) { }
@@ -41,7 +45,8 @@ public final class AuthService {
   private final WorkerExecutor hashWorker;
   private final Map<Long, Account> accounts = new ConcurrentHashMap<>();
   private final SessionRegistry sessions;
-  private final LoginThrottle throttle;
+  private final LoginProtection protection = new LoginProtection();
+  private int setupFailures;
   private volatile String dummyHash;
   private volatile String setupCode;
   private volatile long setupExpiresMs;
@@ -52,7 +57,6 @@ public final class AuthService {
     this.clock = clock;
     this.hashWorker = vertx.createSharedWorkerExecutor("airms-auth-hash", 2, 30, TimeUnit.SECONDS);
     this.sessions = new SessionRegistry(clock);
-    this.throttle = new LoginThrottle(clock);
   }
 
   /** 載入帳號；還沒有任何帳號時產生一次性的設定碼（30 分鐘有效），回傳設定碼或 null。 */
@@ -81,10 +85,22 @@ public final class AuthService {
     return settings.intValue("auth.sessionIdleMinutes") * 60_000L;
   }
 
-  /** 定期維護：清掉逾時 Session 與過期的 IP 計數。 */
+  private int maxFailures() {
+    return settings.intValue("auth.maxFailedLogins");
+  }
+
+  private long failureWindowMs() {
+    return settings.intValue("auth.failureWindowSeconds") * 1000L;
+  }
+
+  private long cooldownMs() {
+    return settings.intValue("auth.cooldownSeconds") * 1000L;
+  }
+
+  /** 定期維護：清掉逾時 Session 與已過計算期間的密碼錯誤紀錄。 */
   public void housekeeping() {
     sessions.purgeExpired(idleMs());
-    throttle.purge();
+    protection.purge(clock.getAsLong(), failureWindowMs());
   }
 
   // ---------------------------------------------------------------- 初次設定
@@ -96,9 +112,15 @@ public final class AuthService {
   public Future<Account> setup(String code, String username, String displayName, String password, String ip) {
     long now = clock.getAsLong();
     if (!accounts.isEmpty()) return fail(409, "已經有管理者帳號，請直接登入");
-    if (setupCode == null || now > setupExpiresMs) return fail(410, "設定碼已過期，請重新啟動程式取得新的設定碼");
+    if (setupCode == null || now > setupExpiresMs) return fail(410, "設定碼已失效，請重新啟動程式取得新的設定碼");
     if (code == null || !constantEquals(code.trim(), setupCode)) {
-      throttle.fail(ip);
+      synchronized (this) {
+        if (++setupFailures >= SETUP_MAX_FAILURES) {
+          setupCode = null;
+          log.warn("設定碼輸錯 {} 次，已作廢；請重新啟動程式取得新的設定碼", SETUP_MAX_FAILURES);
+          return fail(410, "設定碼錯誤次數過多已作廢，請重新啟動程式取得新的設定碼");
+        }
+      }
       return fail(403, "設定碼錯誤");
     }
     String err = firstError(AccountRules.checkUsername(username), AccountRules.checkDisplayName(displayName),
@@ -121,53 +143,99 @@ public final class AuthService {
   // ---------------------------------------------------------------- 登入、登出、驗證
 
   public Future<LoginOk> login(String username, String password, String ip, String userAgent) {
+    return login(username, password, ip, userAgent, null);
+  }
+
+  /**
+   * 登入。currentToken 是這個瀏覽器原本的登入 Cookie（可為 null）：重新登入時不算「已在別處登入」，成功後舊的那個會登出。
+   * 規則（比照 EMS）：帳號名稱先檢查格式；同一帳號在計算期間內密碼錯誤達次數就冷卻，冷卻期間的嘗試不計次、不延長；
+   * 不依來源 IP 鎖定。一般帳號同一時間只能登入一處，已在別處登入時拒絕新的登入；管理者不限。
+   */
+  public Future<LoginOk> login(String username, String password, String ip, String userAgent, String currentToken) {
     long now = clock.getAsLong();
-    String name = username == null ? "" : username.trim();
-    if (throttle.blocked(ip)) {
-      return logLogin(name, null, "IP_BLOCKED", ip, userAgent)
-          .compose(v -> fail(429, "嘗試次數過多，請 10 分鐘後再試"));
+    String name = LoginInput.normalize(username);
+    if (name.isEmpty() || password == null || password.isEmpty()) return fail(400, "請輸入帳號與密碼");
+    String inputError = LoginInput.check(name);
+    if (inputError != null) {
+      return logLogin(LoginInput.forLog(name), null, "INVALID_INPUT", ip, userAgent).compose(v -> fail(400, inputError));
     }
-    if (name.isEmpty() || password == null || password.isEmpty() || password.length() > AccountRules.PASSWORD_MAX) {
-      return fail(400, "請輸入帳號與密碼");
-    }
+    if (password.length() > AccountRules.PASSWORD_MAX) return rejected(name, null, "BAD_PASSWORD", ip, userAgent);
     return db.run(c -> AccountRepository.findForLogin(c, name)).compose(cred -> {
       Account a = cred == null ? null : cred.account();
-      boolean locked = a != null && a.locked(now);
-      // 帳號不存在或已鎖定時，仍以假雜湊驗證一次，讓回應時間一致，避免從時間差猜出帳號是否存在。
-      String hashToCheck = (a == null || locked) ? dummyHash : cred.passwordHash();
+      boolean cooling = a != null && a.locked(now);
+      // 帳號不存在或冷卻中時，仍以假雜湊驗證一次，讓回應時間一致，避免從時間差猜出帳號是否存在。
+      String hashToCheck = (a == null || cooling) ? dummyHash : cred.passwordHash();
       // 紀錄用帳號的正式名稱（大小寫一致），帳號不存在時記下輸入的名稱。
       String logName = a == null ? name : a.username();
       return verify(hashToCheck, password).compose(ok -> {
-        if (a == null) return rejected(name, null, "UNKNOWN_USER", ip, userAgent, "帳號或密碼錯誤");
-        if (locked) return rejected(logName, a.id(), "LOCKED", ip, userAgent, "帳號或密碼錯誤，或帳號暫時鎖定");
+        if (a == null) return rejected(name, null, "UNKNOWN_USER", ip, userAgent);
+        // 冷卻中：不看密碼對錯、不計次、不延長
+        if (cooling) return rejected(logName, a.id(), "LOCKED", ip, userAgent);
         if (!ok) {
-          int max = settings.intValue("auth.maxFailedLogins");
-          long lockMs = settings.intValue("auth.lockMinutes") * 60_000L;
-          return db.tx(c -> AccountRepository.recordFailure(c, a.id(), now, max, lockMs)).compose(updated -> {
+          boolean startCooling = protection.recordFailure(a.id(), now, maxFailures(), failureWindowMs());
+          Long coolUntil = startCooling ? now + cooldownMs() : null;
+          return db.tx(c -> AccountRepository.recordFailure(c, a.id(), coolUntil)).compose(updated -> {
             accounts.put(updated.id(), updated);
-            String outcome = updated.locked(now) ? "BAD_PASSWORD_LOCKED" : "BAD_PASSWORD";
-            return rejected(logName, a.id(), outcome, ip, userAgent, "帳號或密碼錯誤");
+            return rejected(logName, a.id(), startCooling ? "BAD_PASSWORD_LOCKED" : "BAD_PASSWORD", ip, userAgent);
           });
         }
+        protection.clear(a.id());
         // 密碼正確才告知帳號狀態，不會洩漏給不知道密碼的人。
-        if (!a.enabled()) return rejected(logName, a.id(), "DISABLED", ip, userAgent, "此帳號已停用，請聯絡管理者");
-        if (a.expired(now)) return rejected(logName, a.id(), "EXPIRED", ip, userAgent, "此帳號已過期，請聯絡管理者");
+        if (!a.enabled()) return rejectWith(logName, a.id(), "DISABLED", ip, userAgent, 401, "此帳號已停用，請聯絡管理者");
+        if (a.expired(now)) return rejectWith(logName, a.id(), "EXPIRED", ip, userAgent, 401, "此帳號已過期，請聯絡管理者");
+        if (!a.isAdmin()) {
+          SessionRegistry.Session other = sessions.otherActive(a.id(), currentToken, idleMs());
+          if (other != null) return rejectWith(logName, a.id(), "ALREADY_LOGGED_IN", ip, userAgent, 409, alreadyText(other));
+        }
         return db.tx(c -> {
           AccountRepository.recordSuccess(c, a.id(), now);
           AuthLogRepository.login(c, now, logName, a.id(), "SUCCESS", ip, userAgent);
           return AccountRepository.load(c, a.id());
-        }).map(fresh -> {
+        }).compose(fresh -> {
           accounts.put(fresh.id(), fresh);
-          SessionRegistry.Created created = sessions.create(fresh.id(), ip, userAgent);
-          return new LoginOk(created.token(), new Principal(created.session(), fresh));
+          // 這個瀏覽器原本的登入（不論哪個帳號）換成新的，避免舊的留著佔住一般帳號
+          if (currentToken != null) sessions.removeByToken(currentToken);
+          SessionRegistry.Created created;
+          if (fresh.isAdmin()) {
+            created = sessions.create(fresh.id(), ip, userAgent);
+          } else {
+            SessionRegistry.Exclusive x = sessions.createExclusive(fresh.id(), ip, userAgent, idleMs(), currentToken);
+            if (x.conflict() != null) {   // 兩個地方幾乎同時登入：後到的拒絕
+              return rejectWith(logName, fresh.id(), "ALREADY_LOGGED_IN", ip, userAgent, 409, alreadyText(x.conflict()));
+            }
+            created = x.created();
+          }
+          return Future.succeededFuture(new LoginOk(created.token(), new Principal(created.session(), fresh)));
         });
       });
     });
   }
 
-  private <T> Future<T> rejected(String name, Long accountId, String outcome, String ip, String ua, String message) {
-    throttle.fail(ip);
-    return logLogin(name, accountId, outcome, ip, ua).compose(v -> fail(401, message));
+  /** 帳號或密碼錯誤（含帳號不存在、冷卻中）一律同一句話，不讓人從訊息猜出帳號是否存在或是否冷卻中。 */
+  private String badCredentialText() {
+    return "帳號或密碼錯誤。同一帳號 " + duration(failureWindowMs()) + "內錯誤 " + maxFailures() + " 次，需等待 "
+        + duration(cooldownMs()) + "後再試。";
+  }
+
+  private String alreadyText(SessionRegistry.Session other) {
+    return "此帳號已在其他地方登入（" + TIME.format(java.time.Instant.ofEpochMilli(other.createdAtMs())) + " 登入，來源 "
+        + (other.ip() == null ? "不明" : other.ip()) + "），一般帳號同一時間只能登入一處。請先在那裡登出；若那邊已關閉，閒置 "
+        + settings.intValue("auth.sessionIdleMinutes") + " 分鐘後會自動登出，或請管理者在「登入管理」強制登出。";
+  }
+
+  /** 300000 →「5 分鐘」、60000 →「60 秒」。 */
+  static String duration(long ms) {
+    long s = ms / 1000;
+    return s >= 120 && s % 60 == 0 ? (s / 60) + " 分鐘" : s + " 秒";
+  }
+
+  private <T> Future<T> rejected(String name, Long accountId, String outcome, String ip, String ua) {
+    return rejectWith(name, accountId, outcome, ip, ua, 401, badCredentialText());
+  }
+
+  private <T> Future<T> rejectWith(String name, Long accountId, String outcome, String ip, String ua, int status,
+                                   String message) {
+    return logLogin(name, accountId, outcome, ip, ua).compose(v -> fail(status, message));
   }
 
   private Future<Void> logLogin(String name, Long accountId, String outcome, String ip, String ua) {
@@ -297,6 +365,7 @@ public final class AuthService {
       return AccountRepository.load(c, id);
     }).map(a -> {
       accounts.put(a.id(), a);
+      protection.clear(a.id());
       return null;
     });
   }

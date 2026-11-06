@@ -129,16 +129,18 @@ public final class AccountRepository {
     }
   }
 
-  /** 密碼錯誤：累加失敗次數，達上限時鎖定。回傳更新後的帳號。 */
-  public static Account recordFailure(Connection c, long id, long nowMs, int maxFailures, long lockMs)
-      throws SQLException {
+  /**
+   * 密碼錯誤：累加連續失敗次數（給管理頁參考）；coolUntilMs 不為 null 時開始冷卻到該時間。
+   * 是否冷卻由 LoginProtection 依「計算期間內的錯誤次數」決定。回傳更新後的帳號。
+   */
+  public static Account recordFailure(Connection c, long id, Long coolUntilMs) throws SQLException {
     try (PreparedStatement ps = c.prepareStatement("""
         UPDATE account SET failed_count = failed_count + 1,
-          locked_until_ms = CASE WHEN failed_count + 1 >= ? THEN ? ELSE locked_until_ms END
+          locked_until_ms = COALESCE(?, locked_until_ms)
         WHERE account_id=?""")) {
-      ps.setInt(1, maxFailures);
-      ps.setLong(2, nowMs + lockMs);
-      ps.setLong(3, id);
+      if (coolUntilMs == null) ps.setNull(1, java.sql.Types.INTEGER);
+      else ps.setLong(1, coolUntilMs);
+      ps.setLong(2, id);
       ps.executeUpdate();
     }
     return load(c, id);

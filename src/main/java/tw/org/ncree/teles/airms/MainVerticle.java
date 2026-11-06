@@ -11,6 +11,8 @@ import io.vertx.core.net.PfxOptions;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
@@ -19,6 +21,7 @@ import org.apache.logging.log4j.Logger;
 import tw.org.ncree.teles.airms.auth.AuthService;
 import tw.org.ncree.teles.airms.config.AppConfig;
 import tw.org.ncree.teles.airms.config.Secrets;
+import tw.org.ncree.teles.airms.config.TlsKeystore;
 import tw.org.ncree.teles.airms.db.Db;
 import tw.org.ncree.teles.airms.db.Schema;
 import tw.org.ncree.teles.airms.feed.FeedHttpClient;
@@ -46,8 +49,10 @@ import tw.org.ncree.teles.airms.view.RampService;
 public final class MainVerticle extends VerticleBase {
   private static final Logger log = LogManager.getLogger(MainVerticle.class);
 
+  private static final DateTimeFormatter DAY = DateTimeFormatter.ofPattern("yyyy/MM/dd").withZone(ZoneId.of("Asia/Taipei"));
   private static final long HEARTBEAT_MS = 60_000;
   private static final long AUTH_HOUSEKEEPING_MS = 60_000;
+  private static final long CERT_CHECK_MS = 24 * 60 * 60_000L;
   /** 程式版本；只在 build.gradle.kts 的 version 維護。 */
   public static final String APP_VERSION = appVersion();
 
@@ -62,11 +67,15 @@ public final class MainVerticle extends VerticleBase {
   }
 
   private AppContext app;
+  /** HTTPS 憑證密碼：啟動前檢查時取得，只在本物件內使用，不放進 AppContext（避免被印出）。 */
+  private String tlsPassword;
+  private TlsKeystore.Cert tlsCert;
   private HttpServer server;
   private volatile DataDirLock lock;
   private long runId = -1;
   private long heartbeatTimer = -1;
   private long housekeepingTimer = -1;
+  private long certTimer = -1;
 
   @Override
   public Future<?> start() {
@@ -92,6 +101,8 @@ public final class MainVerticle extends VerticleBase {
         .compose(v -> app.auth().init())
         .compose(setupCode -> {
           housekeepingTimer = vertx.setPeriodic(AUTH_HOUSEKEEPING_MS, id -> app.auth().housekeeping());
+          checkCertExpiry();
+          certTimer = vertx.setPeriodic(CERT_CHECK_MS, id -> checkCertExpiry());
           if (setupCode != null) logSetupCode(setupCode);
           return recordRunStart();
         })
@@ -99,13 +110,37 @@ public final class MainVerticle extends VerticleBase {
         .compose(v -> startHttp())
         .onSuccess(s -> log.info("AiRMS {} 已啟動：{}://{}:{}/", APP_VERSION,
             app.config().http().tlsEnabled() ? "https" : "http", app.config().http().host(), s.actualPort()))
-        .onFailure(e -> log.error("AiRMS 啟動失敗：{}", e.getMessage()))
+        .onFailure(MainVerticle::logStartFailure)
         .recover(error -> closeResources().transform(ignored -> Future.failedFuture(error)));
   }
 
-  /** worker 執行緒：讀設定、機密，驗證資料目錄，建立元件（不連網、不寫資料）。 */
+  /**
+   * 啟動失敗：設定類問題（缺檔、密碼錯、資料目錄不對…）只印訊息，一行一行印，方便現場看懂；
+   * 其他非預期錯誤才附程式堆疊。Vert.x 啟動器本身的錯誤堆疊已在 log4j2.xml 關閉，避免同一件事印兩次。
+   */
+  static void logStartFailure(Throwable e) {
+    String msg = e.getMessage() == null ? e.getClass().getName() : e.getMessage();
+    boolean known = e instanceof StartupException || e instanceof IllegalStateException
+        || e instanceof IllegalArgumentException || e.getStackTrace().length == 0;
+    String[] lines = msg.split("\\R");
+    if (known) {
+      log.error("AiRMS 啟動失敗：{}", lines[0]);
+      for (int i = 1; i < lines.length; i++) log.error("  {}", lines[i]);
+    } else {
+      log.error("AiRMS 啟動失敗：" + lines[0], e);
+    }
+  }
+
+  /** worker 執行緒：讀設定、機密，驗證憑證與資料目錄，建立元件（不連網、不寫資料）。 */
   private AppContext build(JsonObject json) throws java.io.IOException {
     AppConfig config = AppConfig.parse(json);
+    if (config.http().tlsEnabled()) {
+      // 先檢查憑證：新機器最常漏的就是憑證檔與 secrets.json（都不進 git），在動資料庫之前就說清楚
+      TlsKeystore.Info tls = TlsKeystore.check(config.http().keystorePath(), Secrets.load(config.secretsFile()));
+      tlsPassword = tls.password();
+      tlsCert = tls.cert();
+      log.info("HTTPS 憑證：{}（有效到 {}）", tlsCert.subject(), tlsCert.notAfterText());
+    }
     NetworkConfig network = NetworkConfig.load(config.networkFile());
     log.info("路網設定：{}（{} 個節點、{} 個匝道圈、{} 組屏柵線）", network.source(), network.nodeCount(),
         network.ramps().size(), network.screenlines().size());
@@ -128,7 +163,14 @@ public final class MainVerticle extends VerticleBase {
     LiveViewService liveView = new LiveViewService(airms, vd, settings, network, clock::millis);
     return new AppContext(config, clock, volume, airms, vd, authDb, new VdRepository(),
         archive, new FeedHttpClient(vertx, config.feedHttp()), new FeedStatusBoard(), settings, auth, network, liveView,
-        new RampService(airms, network));
+        new RampService(airms, network), tlsCert);
+  }
+
+  /** 憑證到期提醒：啟動時與之後每天一次（長時間不重啟的機器也看得到）；首頁另外顯示。 */
+  private void checkCertExpiry() {
+    String msg = TlsKeystore.expiryWarning(app.tlsCert(), app.clock().instant(),
+        app.settings().intValue(SettingsService.TLS_EXPIRY_WARNING_DAYS));
+    if (msg != null) log.warn(msg);
   }
 
   /** 還沒有任何帳號：把一次性設定碼寫到 log，讓有主機存取權的人建立第一個管理者。 */
@@ -174,11 +216,10 @@ public final class MainVerticle extends VerticleBase {
     AppConfig.Http h = app.config().http();
     HttpServerOptions options = new HttpServerOptions().setHost(h.host()).setPort(h.port());
     if (h.tlsEnabled()) {
-      String password = Secrets.load(app.config().secretsFile()).tlsKeystorePassword();
       options.setSsl(true)
           .setUseAlpn(true)
           .setEnabledSecureTransportProtocols(Set.of("TLSv1.3"))
-          .setKeyCertOptions(new PfxOptions().setPath(h.keystorePath().toString()).setPassword(password));
+          .setKeyCertOptions(new PfxOptions().setPath(h.keystorePath().toString()).setPassword(tlsPassword));
     } else {
       log.warn("HTTPS 已關閉（http.tls.enabled=false），只適合本機開發");
     }
@@ -206,6 +247,7 @@ public final class MainVerticle extends VerticleBase {
   private Future<Void> closeResources() {
     vertx.cancelTimer(heartbeatTimer);
     vertx.cancelTimer(housekeepingTimer);
+    vertx.cancelTimer(certTimer);
     List<Future<?>> closing = new ArrayList<>();
     if (server != null) closing.add(server.close());
     Future<Void> marked = Future.succeededFuture();

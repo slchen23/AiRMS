@@ -54,7 +54,22 @@ public final class SessionRegistry {
     public String csrfToken() {
       return csrfToken;
     }
+
+    public long createdAtMs() {
+      return createdAtMs;
+    }
+
+    public long lastSeenMs() {
+      return lastSeenMs;
+    }
+
+    public String ip() {
+      return ip;
+    }
   }
+
+  /** 一般帳號建立登入的結果：成功時 created 有值；已在別處登入時 conflict 為那個登入。 */
+  public record Exclusive(Created created, Session conflict) { }
 
   /** 新建立的 Session 與要放進 Cookie 的 token（token 只在這裡出現一次）。 */
   public record Created(String token, Session session) { }
@@ -66,11 +81,39 @@ public final class SessionRegistry {
     this.clock = clock;
   }
 
-  public Created create(long accountId, String ip, String userAgent) {
+  public synchronized Created create(long accountId, String ip, String userAgent) {
     String token = random(32);
     Session s = new Session(random(12), accountId, random(24), clock.getAsLong(), ip, userAgent);
     byTokenHash.put(hash(token), s);
     return new Created(token, s);
+  }
+
+  /**
+   * 一般帳號同一時間只能有一個登入：這個帳號已有其他未逾時的登入時不建立，回傳那個登入（由呼叫端拒絕新登入）。
+   * ownToken 是這個瀏覽器原本的登入（重新登入時不算「別處」）。檢查與建立在同一個鎖內，兩個同時登入只會成功一個。
+   */
+  public synchronized Exclusive createExclusive(long accountId, String ip, String userAgent, long idleTimeoutMs,
+                                                String ownToken) {
+    Session other = otherActive(accountId, ownToken, idleTimeoutMs);
+    if (other != null) return new Exclusive(null, other);
+    return new Exclusive(create(accountId, ip, userAgent), null);
+  }
+
+  /** 這個帳號除了 ownToken 之外、仍有效（未逾時）的登入；沒有回傳 null。不更新最後活動時間。 */
+  public Session otherActive(long accountId, String ownToken, long idleTimeoutMs) {
+    String own = ownToken == null || ownToken.isEmpty() || ownToken.length() > 100 ? null : hash(ownToken);
+    long now = clock.getAsLong();
+    Session found = null;
+    for (var e : byTokenHash.entrySet()) {
+      Session s = e.getValue();
+      if (s.accountId != accountId || e.getKey().equals(own)) continue;
+      if (now - s.lastSeenMs > idleTimeoutMs || now - s.createdAtMs > ABSOLUTE_MAX_MS) {
+        byTokenHash.remove(e.getKey());
+        continue;
+      }
+      if (found == null || s.lastSeenMs > found.lastSeenMs) found = s;
+    }
+    return found;
   }
 
   /** 找到且未逾時就更新最後活動時間並回傳；逾時則移除。 */

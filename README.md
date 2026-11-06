@@ -13,11 +13,12 @@
 
 1. **準備外接硬碟的資料目錄**，例如 `E:\airms-data`，在裡面建立一個空檔 `.airms-volume`。
    沒有這個標記檔程式會拒絕啟動，防止硬碟沒接上時把資料寫到 C 槽。
-2. **憑證**：把 HTTPS 憑證（PKCS#12，.pfx）放在專案資料夾以外，例如 `E:\airms-secrets\server.pfx`。
-   憑證與密碼不可放進專案資料夾或 git。
-3. **設定檔**：複製 `config.example.json` 為 `config.json`，修改 `storage.dataDir` 與 `http.tls.keystorePath`。
-4. **憑證密碼**：複製 `secrets.example.json` 為 `secrets.json` 填入密碼；
-   或改用環境變數 `AIRMS_TLS_KEYSTORE_PASSWORD`（優先）。
+2. **HTTPS 憑證**（每台新電腦都要做一次，見下方「HTTPS 憑證」）：在專案資料夾執行
+   `powershell -ExecutionPolicy Bypass -File tools\tls\new-cert.ps1`，會在 `D:\airms-secrets` 產生
+   `server.pfx`、`secrets.json`（隨機密碼）、`server.cer`。
+3. **設定檔**：複製 `config.example.json` 為 `config.json`，修改 `storage.dataDir`，
+   並依上一步畫面提示設定 `http.tls.keystorePath` 與 `secretsFile`。
+4. 憑證密碼也可以改用環境變數 `AIRMS_TLS_KEYSTORE_PASSWORD`（優先於 secrets.json）。
 5. **執行**（工作目錄必須是專案資料夾）：
    - 開發：`gradlew run`
    - 打包：`gradlew shadowJar` → `build/libs/airms-<版本>-fat.jar`（例如 `airms-0.3.0-fat.jar`），執行
@@ -25,10 +26,32 @@
    - 版本號只改 `build.gradle.kts` 的 `version`；啟動完成的 log「AiRMS 0.3.0 已啟動…」與 `service_run` 表都會記錄版本
 6. **建立第一個管理者**：第一次啟動時 log 會印出一組設定碼，30 分鐘內打開
    `https://localhost:8081/setup.html` 輸入設定碼並設定管理者帳號密碼（沒有預設帳密）。
-7. 首頁 `https://localhost:8081/` 顯示三個來源的抓取狀態；即時監視頁 `https://localhost:8081/view2.html`
-   （不需登入）。登入後右上角選單進入帳號設定，管理者左側有「使用者管理、登入管理、路網匝道、路網路段、系統設定」。
+7. 首頁 `https://localhost:8081/` 顯示三個來源的抓取狀態；即時監視頁 `https://localhost:8081/view2.html`。
+   預設兩者都要登入（即時監視另需「監視」權限）；只在內網使用時，可到「系統設定 → 首頁與即時監視需要登入」關閉。
+   登入後右上角選單進入帳號設定，管理者左側有「使用者管理、登入管理、路網匝道、路網路段、系統設定」。
 
 `config.json`、`secrets.json`、`*.pfx`、資料庫與原始 XML 都已列在 `.gitignore`。
+
+## HTTPS 憑證
+
+憑證檔（.pfx）與密碼檔（secrets.json）刻意不進 git，所以**每台新電腦（含樹莓派）都要先產生**，否則啟動時會停下並說明缺哪個檔。
+
+| 電腦 | 指令（在專案資料夾執行） | 預設輸出 |
+|---|---|---|
+| Windows | `powershell -ExecutionPolicy Bypass -File tools\tls\new-cert.ps1` | `D:\airms-secrets` |
+| 樹莓派／Linux | `sudo tools/tls/new-cert.sh -o /etc/airms -u <執行 AiRMS 的帳號>` | `~/airms-secrets` |
+
+- 產生自簽憑證（EC P-256，預設有效 10 年），名稱含 localhost、本機名稱、本機 IP；其他對外名稱或 IP 可加在後面
+  （Windows：`-Names airms.local,10.1.2.3`；Linux：直接接在指令後面）。
+- 有效天數可改（Windows `-Days`、Linux `-d`）。自簽憑證只給 Windows／Android 的 Chrome、Edge、Firefox 使用時沒有上限；
+  **會用 iPhone、iPad、Mac 開的話，Apple 規定不可超過 825 天**，請用 `-Days 825`／`-d 825`。
+- 密碼隨機產生，只寫進 secrets.json，不顯示、不出現在命令列；資料夾權限只給目前使用者（Pi 為 700／600）。
+- 已有憑證時不會覆蓋，要重新產生加 `-Force`（Windows）或 `-f`（Linux）。
+- 完成後畫面會列出 config.json 要填的 `keystorePath` 與 `secretsFile`（可用絕對路徑）。
+- 瀏覽器會提示自簽憑證；把 `server.cer` 匯入使用者電腦的「受信任的根憑證授權單位」即可消除。
+- 啟動時會先檢查憑證（在開資料庫之前）：缺檔、缺密碼、密碼不對都會直接說明。
+- 到期提醒：剩下天數少於「系統設定 → HTTPS 憑證 → 到期前幾天開始提醒」（預設 90 天）時，首頁顯示提醒、log 每天警告一次；
+  首頁下方平常也會顯示憑證有效到哪一天。
 
 ## 開發時常常停機重跑
 
