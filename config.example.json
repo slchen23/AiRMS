@@ -51,8 +51,17 @@
   },
   "retention": {
     "runEveryHours": 12,
-    "sectionHistoryDays": 760,
-    "rmsHistoryDays": 760,
-    "feedAttemptDays": 90
+    "rawXmlDays": 30,
+    "vdMonths": 12,
+    "sectionMonths": 25,
+    "rmsMonths": 25,
+    "feedLogMonths": 3
+  },
+  "backup": {
+    "enabled": false,
+    "targetDir": "F:/airms-backup",
+    "volumeMarker": ".airms-backup",
+    "dailyAt": "02:00",
+    "coreKeep": 30
   }
 }
