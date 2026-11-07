@@ -24,7 +24,7 @@ import tw.org.ncree.teles.airms.settings.SettingsService;
 
 /**
  * 帳號、登入、Session 與管理操作。帳號資料快取在記憶體，每次請求驗證只讀記憶體；
- * 任何異動先寫入 auth.db、成功後才更新快取。Argon2 雜湊在專用 worker（最多 2 個同時）計算，不占 event loop。
+ * 任何異動先寫入 core.db、成功後才更新快取。Argon2 雜湊在專用 worker（最多 2 個同時）計算，不占 event loop。
  */
 public final class AuthService {
   private static final Logger log = LogManager.getLogger(AuthService.class);
@@ -51,8 +51,8 @@ public final class AuthService {
   private volatile String setupCode;
   private volatile long setupExpiresMs;
 
-  public AuthService(Vertx vertx, Db authDb, SettingsService settings, LongSupplier clock) {
-    this.db = authDb;
+  public AuthService(Vertx vertx, Db coreDb, SettingsService settings, LongSupplier clock) {
+    this.db = coreDb;
     this.settings = settings;
     this.clock = clock;
     this.hashWorker = vertx.createSharedWorkerExecutor("airms-auth-hash", 2, 30, TimeUnit.SECONDS);

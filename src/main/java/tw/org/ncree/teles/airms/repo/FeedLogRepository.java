@@ -8,7 +8,7 @@ import java.sql.Types;
 import tw.org.ncree.teles.airms.feed.FeedKind;
 import tw.org.ncree.teles.airms.feed.RawXmlArchive;
 
-/** airms.db 的 feed_attempt（每次抓取）與 raw_xml_file（每份不同內容的原始檔）。只在 Db 執行緒使用。 */
+/** 抓取紀錄月檔（feedlog_yyyyMM.db）的 feed_attempt（每次抓取）與 raw_xml_file（每份不同內容的原始檔）。只在 Db 執行緒使用。 */
 public final class FeedLogRepository {
   private FeedLogRepository() { }
 

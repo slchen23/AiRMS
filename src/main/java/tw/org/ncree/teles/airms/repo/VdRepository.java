@@ -7,30 +7,38 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
+import java.time.YearMonth;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 import tw.org.ncree.teles.airms.db.Schema;
 import tw.org.ncree.teles.airms.parse.VdParser;
 
 /**
- * VD 全量資料寫入 vd_health.db（永久保存）。一份快照在同一個交易內寫完：快照、設備、車道、樣本。
- * 設備與車道的整數鍵快取在記憶體；這個物件只能在 vd_health.db 的 Db 執行緒使用。
+ * VD 全量資料寫入該月的 vd_yyyyMM.db。一份快照在同一個交易內寫完：快照、設備、車道、樣本。
+ * 每個月檔有自己的設備與車道編號，編號快取在記憶體、依月份分開；
+ * write 只能在 VD 月檔的 Db 執行緒呼叫（所有 VD 月檔共用同一條執行緒）。
  */
 public final class VdRepository {
   private static final String LANE_COLS = String.join(", ", Schema.VD_LANE_FIELDS);
   private static final String LANE_MARKS = Schema.VD_LANE_FIELDS.stream().map(f -> "?").collect(Collectors.joining(","));
 
-  private final Map<String, Long> deviceIds = new HashMap<>();
-  private final Map<String, Long> laneKeys = new HashMap<>();
-  private boolean cacheLoaded;
+  /** 一個月檔的編號快取。 */
+  private static final class Keys {
+    final Map<String, Long> deviceIds = new HashMap<>();
+    final Map<String, Long> laneKeys = new HashMap<>();
+  }
+
+  private final Map<YearMonth, Keys> caches = new ConcurrentHashMap<>();
 
   public record Result(boolean inserted, long snapshotId, int devices, int lanes) { }
 
-  /** 同一份內容（雜湊相同）已存過就不再寫，回傳 inserted=false。 */
-  public Result write(Connection c, VdParser.Snapshot s, String sha256, long receivedAtMs) throws SQLException {
-    loadCache(c);
+  /** 同一份內容（雜湊相同）已存過就不再寫，回傳 inserted=false。month 是這個連線所屬的月檔。 */
+  public Result write(Connection c, YearMonth month, VdParser.Snapshot s, String sha256, long receivedAtMs)
+      throws SQLException {
+    Keys cache = loadCache(c, month);
     long snapshotId;
     try (PreparedStatement ps = c.prepareStatement("""
         INSERT OR IGNORE INTO vd_snapshot(feed_time_raw, feed_time_ms, control_center_id, file_name,
@@ -63,7 +71,7 @@ public final class VdRepository {
              + "is_data_valid, " + LANE_COLS + ", extra_json) VALUES (?,?,?," + LANE_MARKS + ",?)")) {
       int lanes = 0;
       for (VdParser.Device d : s.devices()) {
-        long deviceId = deviceId(newDevice, d.eqId(), s.feedTimeMs());
+        long deviceId = deviceId(cache, newDevice, d.eqId(), s.feedTimeMs());
         deviceSample.setLong(1, snapshotId);
         deviceSample.setLong(2, deviceId);
         deviceSample.setString(3, d.commStatus());
@@ -73,7 +81,7 @@ public final class VdRepository {
         deviceSample.addBatch();
 
         for (VdParser.Lane l : d.laneList()) {
-          long laneKey = laneKey(newLane, deviceId, d.eqId(), l.laneRef(), s.feedTimeMs());
+          long laneKey = laneKey(cache, newLane, deviceId, d.eqId(), l.laneRef(), s.feedTimeMs());
           Map<String, String> extra = new LinkedHashMap<>(l.extra());
           int i = 1;
           laneSample.setLong(i++, snapshotId);
@@ -100,29 +108,30 @@ public final class VdRepository {
     }
   }
 
-  /** 交易失敗回滾後，快取可能含有未寫入的鍵，必須清掉重載。 */
-  public void invalidateCache() {
-    deviceIds.clear();
-    laneKeys.clear();
-    cacheLoaded = false;
+  /** 交易失敗回滾後（或月檔被刪除後），快取可能含有不存在的鍵，必須清掉重載。 */
+  public void invalidateCache(YearMonth month) {
+    caches.remove(month);
   }
 
-  private void loadCache(Connection c) throws SQLException {
-    if (cacheLoaded) return;
+  private Keys loadCache(Connection c, YearMonth month) throws SQLException {
+    Keys k = caches.get(month);
+    if (k != null) return k;
+    k = new Keys();
     try (Statement st = c.createStatement()) {
       try (ResultSet rs = st.executeQuery("SELECT device_id, eq_id FROM vd_device")) {
-        while (rs.next()) deviceIds.put(rs.getString(2), rs.getLong(1));
+        while (rs.next()) k.deviceIds.put(rs.getString(2), rs.getLong(1));
       }
       try (ResultSet rs = st.executeQuery(
           "SELECT l.lane_key, d.eq_id, l.lane_ref FROM vd_lane l JOIN vd_device d ON d.device_id = l.device_id")) {
-        while (rs.next()) laneKeys.put(laneCacheKey(rs.getString(2), rs.getString(3)), rs.getLong(1));
+        while (rs.next()) k.laneKeys.put(laneCacheKey(rs.getString(2), rs.getString(3)), rs.getLong(1));
       }
     }
-    cacheLoaded = true;
+    caches.put(month, k);
+    return k;
   }
 
-  private long deviceId(PreparedStatement insert, String eqId, long seenMs) throws SQLException {
-    Long id = deviceIds.get(eqId);
+  private static long deviceId(Keys k, PreparedStatement insert, String eqId, long seenMs) throws SQLException {
+    Long id = k.deviceIds.get(eqId);
     if (id != null) return id;
     insert.setString(1, eqId);
     insert.setLong(2, seenMs);
@@ -130,15 +139,15 @@ public final class VdRepository {
     try (ResultSet keys = insert.getGeneratedKeys()) {
       if (!keys.next()) throw new SQLException("vd_device 沒有回傳新編號");
       long newId = keys.getLong(1);
-      deviceIds.put(eqId, newId);
+      k.deviceIds.put(eqId, newId);
       return newId;
     }
   }
 
-  private long laneKey(PreparedStatement insert, long deviceId, String eqId, String laneRef, long seenMs)
-      throws SQLException {
+  private static long laneKey(Keys k, PreparedStatement insert, long deviceId, String eqId, String laneRef,
+                              long seenMs) throws SQLException {
     String cacheKey = laneCacheKey(eqId, laneRef);
-    Long key = laneKeys.get(cacheKey);
+    Long key = k.laneKeys.get(cacheKey);
     if (key != null) return key;
     insert.setLong(1, deviceId);
     insert.setString(2, laneRef);
@@ -147,7 +156,7 @@ public final class VdRepository {
     try (ResultSet keys = insert.getGeneratedKeys()) {
       if (!keys.next()) throw new SQLException("vd_lane 沒有回傳新編號");
       long newKey = keys.getLong(1);
-      laneKeys.put(cacheKey, newKey);
+      k.laneKeys.put(cacheKey, newKey);
       return newKey;
     }
   }

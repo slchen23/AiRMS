@@ -21,7 +21,7 @@ import tw.org.ncree.teles.airms.db.Db;
 
 /**
  * 「路網匝道」管理：每個匝道圈可個別隱藏、修改 RMS 代碼（例如匝道廢除、新增 RMS、設備改名）。
- * 路網設定檔是預設值，修改的部分存在 airms.db 的 ramp_override；畫面拿到的路網都先套用這些修改。
+ * 路網設定檔是預設值，修改的部分存在 core.db 的 ramp_override；畫面拿到的路網都先套用這些修改。
  */
 public final class RampService {
   private static final Logger log = LogManager.getLogger(RampService.class);
@@ -54,8 +54,8 @@ public final class RampService {
   private final Map<String, NetworkConfig.RampDef> defs = new LinkedHashMap<>();
   private final Map<String, Override> overrides = new ConcurrentHashMap<>();
 
-  public RampService(Db airmsDb, NetworkConfig network) {
-    this.db = airmsDb;
+  public RampService(Db coreDb, NetworkConfig network) {
+    this.db = coreDb;
     this.network = network;
     for (NetworkConfig.RampDef d : network.ramps()) defs.put(d.key(), d);
   }

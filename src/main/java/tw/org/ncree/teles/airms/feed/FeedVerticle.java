@@ -7,11 +7,13 @@ import io.vertx.core.WorkerExecutor;
 import java.io.IOException;
 import java.net.URI;
 import java.time.Instant;
+import java.time.YearMonth;
 import java.util.concurrent.TimeUnit;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import tw.org.ncree.teles.airms.AppContext;
 import tw.org.ncree.teles.airms.config.AppConfig;
+import tw.org.ncree.teles.airms.db.MonthlyStore;
 import tw.org.ncree.teles.airms.feed.FeedStatusBoard.Outcome;
 import tw.org.ncree.teles.airms.parse.FeedRejectedException;
 import tw.org.ncree.teles.airms.parse.ParseStats;
@@ -27,6 +29,9 @@ import tw.org.ncree.teles.airms.repo.SectionRepository;
  * 同一來源同時只有一輪在跑；這一輪完全結束後才排下一輪，不會堆積。
  * 解析失敗的檔也會歸檔，當作來源 XML 結構有問題的證據。
  * 啟用與否、網址、間隔都在每一輪開始時向系統設定讀取，網頁上修改後下一輪生效。
+ * 寫入位置：VD、路段、RMS 歷史寫入資料時間所屬的月檔；路段與 RMS 最新一筆寫記憶體資料庫；
+ * 抓取紀錄與原始檔索引寫入抓取開始時間所屬的 feedlog 月檔。
+ * 程式剛啟動時，即使內容和上次相同也會解析一次，讓記憶體裡的最新資料立即有值。
  */
 public final class FeedVerticle extends VerticleBase {
   private static final Logger log = LogManager.getLogger(FeedVerticle.class);
@@ -45,6 +50,8 @@ public final class FeedVerticle extends VerticleBase {
   private boolean stopping;
   private Future<Void> inFlight = Future.succeededFuture();
   private String lastSha;
+  /** 啟動後是否已成功解析過一次（記憶體的最新資料是否已有值）。 */
+  private boolean primed;
   /** 上一次記錄到的啟用狀態，用來只在切換時寫 log。 */
   private Boolean announcedEnabled;
 
@@ -63,11 +70,17 @@ public final class FeedVerticle extends VerticleBase {
   @Override
   public Future<?> start() {
     worker = vertx.createSharedWorkerExecutor("airms-feed-" + kind.key(), 1, 2, TimeUnit.MINUTES);
-    return app.airmsDb().run(c -> FeedLogRepository.lastSha(c, kind)).map(sha -> {
-      lastSha = sha;
-      schedule(FIRST_RUN_DELAY_MS + kind.ordinal() * 1500L);
-      return null;
-    });
+    // 先看本月的抓取紀錄，沒有再看上個月（剛換月）
+    long now = app.clock().millis();
+    YearMonth current = MonthlyStore.monthOf(now);
+    return app.feedLog().read(current, c -> FeedLogRepository.lastSha(c, kind))
+        .compose(sha -> sha != null ? Future.succeededFuture(sha)
+            : app.feedLog().read(current.minusMonths(1), c -> FeedLogRepository.lastSha(c, kind)))
+        .map(sha -> {
+          lastSha = sha;
+          schedule(FIRST_RUN_DELAY_MS + kind.ordinal() * 1500L);
+          return null;
+        });
   }
 
   @Override
@@ -113,15 +126,23 @@ public final class FeedVerticle extends VerticleBase {
   private Future<Void> process(FeedHttpClient.Response resp, Instant started) {
     byte[] body = resp.body();
     return worker.executeBlocking(() -> RawXmlArchive.sha256(body), true).compose(sha -> {
-      if (sha.equals(lastSha)) {
+      if (sha.equals(lastSha) && primed) {
         return recordAttempt(started, resp.status(), body.length, sha, Outcome.UNCHANGED, null, null, null)
             .onSuccess(v -> app.feedStatus().record(kind, started, Outcome.UNCHANGED, null));
       }
-      // 同一份內容以前歸檔過（例如內容在兩個版本間來回）就不再另存一個檔。
-      return app.airmsDb().run(c -> FeedLogRepository.archivedFile(c, kind, sha))
+      // 同一份內容最近歸檔過（例如內容在兩個版本間來回、或程式剛重啟）就不再另存一個檔。
+      return archivedFile(sha, started.toEpochMilli())
           .compose(existing -> worker.executeBlocking(() -> prepare(body, sha, existing), true))
           .compose(p -> persist(p, started, resp.status(), body.length));
     });
+  }
+
+  /** 本月或上個月的抓取紀錄中，這份內容是否已歸檔過。 */
+  private Future<RawXmlArchive.Stored> archivedFile(String sha, long nowMs) {
+    YearMonth current = MonthlyStore.monthOf(nowMs);
+    return app.feedLog().read(current, c -> FeedLogRepository.archivedFile(c, kind, sha))
+        .compose(found -> found != null ? Future.succeededFuture(found)
+            : app.feedLog().read(current.minusMonths(1), c -> FeedLogRepository.archivedFile(c, kind, sha)));
   }
 
   /** worker 執行緒：解析、歸檔（阻塞 IO 都在這裡）。 */
@@ -157,7 +178,8 @@ public final class FeedVerticle extends VerticleBase {
     } catch (SafeXml.XmlRejectedException | FeedRejectedException e) {
       reject = clean(e);
     }
-    RawXmlArchive.Stored stored = alreadyStored;
+    // 紀錄說已歸檔，但檔案已依保留天數刪除：重新存一份
+    RawXmlArchive.Stored stored = alreadyStored != null && app.archive().exists(alreadyStored) ? alreadyStored : null;
     String archiveError = null;
     if (stored == null) {
       try {
@@ -176,16 +198,16 @@ public final class FeedVerticle extends VerticleBase {
     if (p.snapshot() == null) {
       dataWrite = Future.succeededFuture(0);
     } else if (p.snapshot() instanceof VdParser.Snapshot s) {
-      dataWrite = app.vdDb().tx(c -> app.vdRepository().write(c, s, p.sha(), receivedAt).lanes())
-          .onFailure(e -> app.vdDb().run(c -> {
-            app.vdRepository().invalidateCache();
-            return null;
-          }));
+      YearMonth month = MonthlyStore.monthOf(s.feedTimeMs());
+      dataWrite = app.vd().tx(s.feedTimeMs(), c -> app.vdRepository().write(c, month, s, p.sha(), receivedAt).lanes())
+          .onFailure(e -> app.vdRepository().invalidateCache(month));
     } else if (p.snapshot() instanceof SectionParser.Snapshot s) {
-      dataWrite = app.airmsDb().tx(c -> SectionRepository.write(c, s, receivedAt));
+      Future<Integer> history = app.sections().tx(s.feedTimeMs(), c -> SectionRepository.writeHistory(c, s, receivedAt));
+      dataWrite = writeLatest(c -> SectionRepository.writeLatest(c, s, receivedAt)).transform(x -> history);
     } else {
       RmsParser.Snapshot s = (RmsParser.Snapshot) p.snapshot();
-      dataWrite = app.airmsDb().tx(c -> RmsRepository.write(c, s, receivedAt));
+      Future<Integer> history = app.rms().tx(s.feedTimeMs(), c -> RmsRepository.writeHistory(c, s, receivedAt));
+      dataWrite = writeLatest(c -> RmsRepository.writeLatest(c, s, receivedAt)).transform(x -> history);
     }
 
     return dataWrite.transform(ar -> {
@@ -207,7 +229,7 @@ public final class FeedVerticle extends VerticleBase {
       String note = p.rejectReason() != null ? p.rejectReason()
           : (p.stats().warnings().isEmpty() ? null : String.join("；", p.stats().warnings()));
       String errorFinal = error;
-      Future<Void> logged = app.airmsDb().tx(c -> {
+      Future<Void> logged = app.feedLog().tx(started.toEpochMilli(), c -> {
         if (p.stored() != null) {
           FeedLogRepository.insertRawFile(c, new FeedLogRepository.RawFile(kind, p.sha(), p.stored().relativePath(),
               bytes, p.stored().storedBytes(), receivedAt, p.feedTimeRaw(), p.feedTimeMs(), parseOutcome,
@@ -222,7 +244,10 @@ public final class FeedVerticle extends VerticleBase {
         app.feedStatus().record(kind, started, outcome, p.feedTimeRaw());
         logResult(outcome, p, errorFinal, ar.succeeded() ? ar.result() : 0);
         // 全部成功（或確定整份不能用且已歸檔）才記住雜湊；否則下一輪重做，寫入本身可重複執行。
-        if (outcome == Outcome.OK || outcome == Outcome.PARTIAL || outcome == Outcome.REJECTED) lastSha = p.sha();
+        if (outcome == Outcome.OK || outcome == Outcome.PARTIAL || outcome == Outcome.REJECTED) {
+          lastSha = p.sha();
+          primed = true;
+        }
         return (Void) null;
       });
     });
@@ -236,9 +261,22 @@ public final class FeedVerticle extends VerticleBase {
     return recordAttempt(started, status, null, null, Outcome.FETCH_FAILED, message, null, null);
   }
 
+  @FunctionalInterface
+  private interface SqlAction {
+    void apply(java.sql.Connection c) throws Exception;
+  }
+
+  /** 記憶體中的最新一筆（畫面用）；失敗只記 log，不影響歷史寫入與重試。 */
+  private Future<Void> writeLatest(SqlAction work) {
+    return app.liveDb().run(c -> {
+      work.apply(c);
+      return (Void) null;
+    }).onFailure(e -> log.warn("{} 更新即時資料失敗：{}", kind.label(), clean(e)));
+  }
+
   private Future<Void> recordAttempt(Instant started, Integer status, Integer bytes, String sha, Outcome outcome,
                                      String error, String feedTimeRaw, Long feedTimeMs) {
-    return app.airmsDb().run(c -> {
+    return app.feedLog().run(started.toEpochMilli(), c -> {
       FeedLogRepository.insertAttempt(c, new FeedLogRepository.Attempt(kind, started.toEpochMilli(),
           app.clock().millis(), status, bytes, sha, outcome.name(), error, feedTimeRaw, feedTimeMs));
       return (Void) null;

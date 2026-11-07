@@ -24,7 +24,12 @@ class StorageTest {
     assertTrue(e.getMessage().contains("標記檔"));
     Files.createFile(dir.resolve(".airms-volume"));
     DataVolume v = DataVolume.verify(dir, ".airms-volume");
-    assertEquals(dir.resolve("vd_health.db").toAbsolutePath().normalize(), v.vdHealthDb());
+    Path root = dir.toAbsolutePath().normalize();
+    assertEquals(root.resolve("db").resolve("core.db"), v.coreDb());
+    assertEquals(root.resolve("cache").resolve("xml_raw"), v.rawXmlRoot());
+    assertEquals(root.resolve("db").resolve("vd"), v.monthlyDir(tw.org.ncree.teles.airms.db.Series.VD));
+    assertTrue(Files.isDirectory(root.resolve("db").resolve("feedlog")));  // 子目錄已建立
+    assertTrue(Files.isDirectory(root.resolve("cache")));
     assertThrows(IllegalStateException.class, () -> DataVolume.verify(dir.resolve("missing"), ".airms-volume"));
   }
 

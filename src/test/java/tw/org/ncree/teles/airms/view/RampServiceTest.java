@@ -52,10 +52,10 @@ class RampServiceTest {
   @Test
   void hideShowAndReplaceRms() throws Exception {
     Vertx vertx = Vertx.vertx();
-    Db db = new Db(vertx, Files.createTempDirectory("airms-ramp").resolve("airms.db"), "t-ramp", Db.Durability.NORMAL);
+    Db db = new Db(vertx, Files.createTempDirectory("airms-ramp").resolve("core.db"), "t-ramp", Db.Durability.NORMAL);
     try {
       await(db.run(c -> {
-        Schema.migrateAirms(c);
+        Schema.migrateCore(c);
         return null;
       }));
       NetworkConfig network = NetworkConfig.load(null);

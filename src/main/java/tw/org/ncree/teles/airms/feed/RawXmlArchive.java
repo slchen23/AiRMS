@@ -17,7 +17,8 @@ import java.util.zip.GZIPOutputStream;
 import tw.org.ncree.teles.airms.parse.FeedTime;
 
 /**
- * 原始 XML 證據檔：xml_raw/<來源>/yyyy/MM/dd/yyyyMMdd_HHmmss_<sha前12碼>.xml.gz（收到時間，台北時區）。
+ * 原始 XML 證據檔：cache/xml_raw/<來源>/yyyy/MM/dd/yyyyMMdd_HHmmss_<sha前12碼>.xml.gz（收到時間，台北時區）。
+ * 依系統設定的保留天數由 RetentionService 刪除（啟用備份時只刪已備份到外接硬碟的日期）。
  * 先寫同目錄暫存檔再原子改名，不會出現寫一半的正式檔。檔名只用時間與雜湊，不用來源內容。
  * 這個類別做的是阻塞式檔案 IO，只能在 worker 執行緒呼叫。
  */
@@ -56,6 +57,12 @@ public final class RawXmlArchive {
       }
     }
     return deleted;
+  }
+
+  /** 紀錄中的檔案是否還在（可能已依保留天數刪除）。 */
+  public boolean exists(Stored stored) {
+    Path p = root.resolve(stored.relativePath()).normalize();
+    return p.startsWith(root) && Files.isRegularFile(p);
   }
 
   public Stored store(FeedKind kind, byte[] bytes, String sha256, Instant receivedAt) throws IOException {

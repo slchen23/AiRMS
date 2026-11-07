@@ -13,7 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-/** auth.db 的帳號與權限。只在 auth.db 的 Db 執行緒使用。 */
+/** core.db 的帳號與權限。只在 core.db 的 Db 執行緒使用。 */
 public final class AccountRepository {
   private AccountRepository() { }
 

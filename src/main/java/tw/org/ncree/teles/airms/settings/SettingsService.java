@@ -17,14 +17,15 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import tw.org.ncree.teles.airms.config.AppConfig;
 import tw.org.ncree.teles.airms.db.Db;
+import tw.org.ncree.teles.airms.db.Series;
 import tw.org.ncree.teles.airms.feed.FeedKind;
 import tw.org.ncree.teles.airms.view.NetworkConfig;
 import tw.org.ncree.teles.airms.view.TrafficRules;
 
 /**
- * 系統設定頁可以調整的項目。預設值來自 config.json；在網頁上改過的值存在 airms.db 的 app_setting，
+ * 系統設定頁可以調整的項目。預設值來自 config.json；在網頁上改過的值存在 core.db 的 app_setting，
  * 刪掉即還原預設。所有項目都「下一次使用時生效」，不需重啟（抓取在下一輪、清除在下一次執行、登入規則立即）。
- * port、憑證、資料目錄等部署設定不在這裡，只能改 config.json。
+ * port、憑證、資料目錄、備份開關與備份位置等部署設定不在這裡，只能改 config.json。
  */
 public final class SettingsService {
 
@@ -32,6 +33,7 @@ public final class SettingsService {
   public enum Type { BOOL, INT, URL, VD_ID, SPEED_STEPS }
 
   public static final String TLS_EXPIRY_WARNING_DAYS = "tls.expiryWarningDays";
+  public static final String RAW_XML_DAYS = "retention.rawXmlDays";
   public static final String SPEED_THRESHOLDS = "speed.thresholds";
   public static final String SPEED_LOW_NO_VOLUME = "speed.lowSpeedNoVolumeAsNoData";
   public static final String SPEED_STALE_MINUTES = "speed.staleMinutes";
@@ -52,16 +54,16 @@ public final class SettingsService {
   private final Map<String, Def> defs = new LinkedHashMap<>();
   private final Map<String, Object> overrides = new ConcurrentHashMap<>();
 
-  public SettingsService(Db airmsDb, AppConfig config) {
-    this(airmsDb, config, null);
+  public SettingsService(Db coreDb, AppConfig config) {
+    this(coreDb, config, null);
   }
 
   /**
    * network：路網設定檔。屏柵線的 VD 與門檻以設定檔為預設值，在系統設定頁可個別調整；null 表示沒有（測試用）。
    * 匝道圈的顯示與 RMS 代碼不在這裡，在「路網匝道」管理頁（RampService）。
    */
-  public SettingsService(Db airmsDb, AppConfig config, NetworkConfig network) {
-    this.db = airmsDb;
+  public SettingsService(Db coreDb, AppConfig config, NetworkConfig network) {
+    this.db = coreDb;
     List<NetworkConfig.ScreenlineDef> screenlines = network == null ? List.of() : network.screenlines();
     for (FeedKind k : FeedKind.values()) {
       AppConfig.Feed f = config.feed(k);
@@ -73,12 +75,20 @@ public final class SettingsService {
           "每一輪完成後才排下一輪"));
     }
     AppConfig.Retention r = config.retention();
-    add(new Def("retention.sectionHistoryDays", "資料保留", "路段歷史保留天數", Type.INT, 1, 36500,
-        r.sectionHistoryDays(), "超過天數的路段歷史會被清除；VD 與原始 XML 永久保存"));
-    add(new Def("retention.rmsHistoryDays", "資料保留", "RMS 歷史保留天數", Type.INT, 1, 36500,
-        r.rmsHistoryDays(), "超過天數的 RMS 歷史會被清除"));
-    add(new Def("retention.feedAttemptDays", "資料保留", "抓取紀錄保留天數", Type.INT, 1, 36500,
-        r.feedAttemptDays(), "每一次抓取的紀錄"));
+    String rg = "資料保留";
+    String backupNote = config.backup().enabled()
+        ? "已啟用備份：尚未備份到外接硬碟的資料不會刪除。"
+        : "未啟用備份（config.json 的 backup.enabled）：到期就直接刪除，測試機若放入舊資料請設為 0。";
+    add(new Def(RAW_XML_DAYS, rg, "原始 XML 保留天數", Type.INT, 0, 36500, r.rawXmlDays(),
+        "原始 XML 在資料目錄 cache/xml_raw 保留最近幾天（含今天），超過的日期資料夾會刪除；0 表示不刪除。" + backupNote));
+    add(new Def(Series.VD.retentionSetting(), rg, "VD 保留月數", Type.INT, 0, 1200, r.vdMonths(),
+        "VD 月檔在本月以外再保留幾個月；例如 12 表示 11 月時保留去年 11 月到本月；0 表示不刪除。" + backupNote));
+    add(new Def(Series.SECTION.retentionSetting(), rg, "路段保留月數", Type.INT, 0, 1200, r.sectionMonths(),
+        "路段歷史月檔在本月以外再保留幾個月（25 個月約 760 天）；0 表示不刪除"));
+    add(new Def(Series.RMS.retentionSetting(), rg, "RMS 保留月數", Type.INT, 0, 1200, r.rmsMonths(),
+        "RMS 歷史月檔在本月以外再保留幾個月；0 表示不刪除"));
+    add(new Def(Series.FEEDLOG.retentionSetting(), rg, "抓取紀錄保留月數", Type.INT, 0, 1200, r.feedLogMonths(),
+        "每次抓取的結果與原始檔索引，在本月以外再保留幾個月；0 表示不刪除"));
     add(new Def("auth.sessionIdleMinutes", "登入安全", "閒置自動登出（分鐘）", Type.INT, 5, 720, 30,
         "超過這段時間沒有操作就需要重新登入"));
     add(new Def("auth.maxFailedLogins", "登入安全", "密碼錯誤幾次後冷卻", Type.INT, 3, 20, 5,

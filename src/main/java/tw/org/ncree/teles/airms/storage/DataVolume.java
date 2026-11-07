@@ -1,12 +1,23 @@
 package tw.org.ncree.teles.airms.storage;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import tw.org.ncree.teles.airms.db.Series;
 
 /**
- * 外接硬碟的防呆：資料目錄裡必須有標記檔，才允許開資料庫或寫原始 XML。
- * 硬碟沒掛上時，掛載點只是系統碟上的空目錄，沒有標記檔 → 拒絕啟動，
- * 避免把資料默默寫到 SD 卡或 C 槽上的新空資料庫。
+ * 資料目錄（正式機在 SD 卡上）。資料目錄裡必須有標記檔才允許使用，避免設定錯路徑時
+ * 默默在別處建立一套新的空資料庫。
+ *
+ * <pre>
+ * &lt;資料目錄&gt;/
+ *   .airms-volume            標記檔（人工建立的空檔）
+ *   .airms-lock              執行中鎖定
+ *   cache/xml_raw/           原始 XML（依保留天數刪除）
+ *   db/core.db               帳號、設定、操作紀錄
+ *   db/vd/vd_yyyyMM.db       VD，每月一個檔
+ *   db/section/…、db/rms/…、db/feedlog/…
+ * </pre>
  */
 public final class DataVolume {
   private final Path root;
@@ -19,36 +30,48 @@ public final class DataVolume {
     if (dataDir == null) throw new IllegalStateException("未設定資料目錄");
     Path root = dataDir.toAbsolutePath().normalize();
     if (!Files.isDirectory(root)) {
-      throw new IllegalStateException("資料目錄不存在：" + root + "（外接硬碟是否已接上？）");
+      throw new IllegalStateException("資料目錄不存在：" + root);
     }
     Path marker = root.resolve(markerName);
     if (!Files.isRegularFile(marker)) {
       throw new IllegalStateException("資料目錄缺少標記檔 " + marker
-          + "：可能是外接硬碟沒有掛上。確認是正確的硬碟後，手動建立這個空檔案再啟動。");
+          + "：請確認 config.json 的 storage.dataDir 是正確的資料目錄，確認後手動建立這個空檔案再啟動。");
     }
     if (!Files.isWritable(root)) {
       throw new IllegalStateException("資料目錄不可寫入：" + root);
     }
-    return new DataVolume(root);
+    DataVolume v = new DataVolume(root);
+    try {
+      Files.createDirectories(v.cacheRoot());
+      for (Series s : Series.values()) Files.createDirectories(v.monthlyDir(s));
+    } catch (IOException e) {
+      throw new IllegalStateException("無法建立資料子目錄：" + e.getMessage());
+    }
+    return v;
   }
 
   public Path root() {
     return root;
   }
 
-  public Path airmsDb() {
-    return root.resolve("airms.db");
+  public Path cacheRoot() {
+    return root.resolve("cache");
   }
 
-  public Path vdHealthDb() {
-    return root.resolve("vd_health.db");
-  }
-
-  public Path authDb() {
-    return root.resolve("auth.db");
-  }
-
+  /** 原始 XML：cache/xml_raw/&lt;來源&gt;/yyyy/MM/dd/*.xml.gz。 */
   public Path rawXmlRoot() {
-    return root.resolve("xml_raw");
+    return cacheRoot().resolve("xml_raw");
+  }
+
+  public Path dbRoot() {
+    return root.resolve("db");
+  }
+
+  public Path coreDb() {
+    return dbRoot().resolve("core.db");
+  }
+
+  public Path monthlyDir(Series s) {
+    return dbRoot().resolve(s.key());
   }
 }

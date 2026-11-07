@@ -43,11 +43,11 @@ class SettingsServiceTest {
   @Test
   void screenlineSettingsComeFromNetworkConfig() throws Exception {
     Vertx vertx = Vertx.vertx();
-    Db db = new Db(vertx, Files.createTempDirectory("airms-settings2").resolve("airms.db"), "t-settings2",
+    Db db = new Db(vertx, Files.createTempDirectory("airms-settings2").resolve("core.db"), "t-settings2",
         Db.Durability.NORMAL);
     try {
       await(db.run(c -> {
-        Schema.migrateAirms(c);
+        Schema.migrateCore(c);
         return null;
       }));
       AppConfig config = AppConfig.parse(new JsonObject(
@@ -73,10 +73,10 @@ class SettingsServiceTest {
   void overridesArePersistedValidatedAndResettable() throws Exception {
     Vertx vertx = Vertx.vertx();
     Path dir = Files.createTempDirectory("airms-settings");
-    Db db = new Db(vertx, dir.resolve("airms.db"), "t-settings", Db.Durability.NORMAL);
+    Db db = new Db(vertx, dir.resolve("core.db"), "t-settings", Db.Durability.NORMAL);
     try {
       await(db.run(c -> {
-        Schema.migrateAirms(c);
+        Schema.migrateCore(c);
         return null;
       }));
       AppConfig config = AppConfig.parse(new JsonObject(
@@ -129,11 +129,11 @@ class SettingsServiceTest {
   @Test
   void speedThresholdsAreValidatedAsOneSetting() throws Exception {
     Vertx vertx = Vertx.vertx();
-    Db db = new Db(vertx, Files.createTempDirectory("airms-settings3").resolve("airms.db"), "t-settings3",
+    Db db = new Db(vertx, Files.createTempDirectory("airms-settings3").resolve("core.db"), "t-settings3",
         Db.Durability.NORMAL);
     try {
       await(db.run(c -> {
-        Schema.migrateAirms(c);
+        Schema.migrateCore(c);
         return null;
       }));
       AppConfig config = AppConfig.parse(new JsonObject(

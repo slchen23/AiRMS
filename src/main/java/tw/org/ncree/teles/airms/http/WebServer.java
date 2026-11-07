@@ -159,6 +159,8 @@ public final class WebServer {
       return;
     }
     out.put("feeds", feeds);
+    out.put("storage", storage(app));
+    out.put("backup", app.backup().status());
     TlsKeystore.Cert cert = app.tlsCert();
     if (cert != null) {
       // 憑證到期日本來就公開在 TLS 連線中，可以給未登入的首頁顯示
@@ -169,6 +171,23 @@ public final class WebServer {
           .put("state", cert.expired(now) ? "EXPIRED" : left < warn ? "EXPIRING" : "OK"));
     }
     Http.json(ctx, 200, out);
+  }
+
+  /** 資料目錄所在磁碟（正式機為 SD 卡）的剩餘空間；低於 storage.minFreePercent 時 low=true。 */
+  static JsonObject storage(AppContext app) {
+    JsonObject o = new JsonObject().put("dataDir", app.volume().root().toString())
+        .put("minFreePercent", app.config().storage().minFreePercent());
+    try {
+      java.nio.file.FileStore fs = java.nio.file.Files.getFileStore(app.volume().root());
+      long total = fs.getTotalSpace();
+      long free = fs.getUsableSpace();
+      double pct = total > 0 ? free * 100.0 / total : 0;
+      o.put("totalBytes", total).put("freeBytes", free).put("freePercent", Math.round(pct * 10) / 10.0)
+          .put("low", pct < app.config().storage().minFreePercent());
+    } catch (java.io.IOException e) {
+      o.put("error", "無法讀取磁碟空間");
+    }
+    return o;
   }
 
   private static void html(RoutingContext ctx, Map<String, String> cache) {

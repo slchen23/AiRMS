@@ -8,17 +8,20 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.function.LongSupplier;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import tw.org.ncree.teles.airms.db.Db;
+import tw.org.ncree.teles.airms.db.MonthlyStore;
 import tw.org.ncree.teles.airms.settings.SettingsService;
 
 /**
- * 即時監視資料：路段速度分級、RMS 顯示文字、屏柵線告警。定時（LiveViewVerticle）從資料庫整理一次放在記憶體，
+ * 即時監視資料：路段速度分級、RMS 顯示文字、屏柵線告警。定時（LiveViewVerticle）整理一次放在記憶體，
  * 網頁請求直接拿這份，不論幾個畫面同時開都不會增加資料庫負擔。
+ * 路段與 RMS 讀記憶體資料庫的最新一筆；屏柵線讀 VD 月檔近 80 分鐘（跨月時同時讀上個月的檔）。
  */
 public final class LiveViewService {
   private static final Logger log = LogManager.getLogger(LiveViewService.class);
@@ -32,8 +35,8 @@ public final class LiveViewService {
   static final long RMS_ITEM_STALE_MS = 5 * 60_000L;
   static final long RMS_STALE_MS = 5 * 60_000L;
 
-  private final Db airmsDb;
-  private final Db vdDb;
+  private final Db liveDb;
+  private final MonthlyStore vd;
   private final SettingsService settings;
   private final NetworkConfig network;
   private final LongSupplier clock;
@@ -41,9 +44,10 @@ public final class LiveViewService {
   private Future<JsonObject> inFlight;
   private long lastFailureLogMs;
 
-  public LiveViewService(Db airmsDb, Db vdDb, SettingsService settings, NetworkConfig network, LongSupplier clock) {
-    this.airmsDb = airmsDb;
-    this.vdDb = vdDb;
+  public LiveViewService(Db liveDb, MonthlyStore vd, SettingsService settings, NetworkConfig network,
+                         LongSupplier clock) {
+    this.liveDb = liveDb;
+    this.vd = vd;
     this.settings = settings;
     this.network = network;
     this.clock = clock;
@@ -68,13 +72,13 @@ public final class LiveViewService {
     }
     TrafficRules.SpeedSteps steps = settings.speedSteps();
     long sectionStaleMs = settings.sectionStaleMs();
-    Future<JsonObject> airms = airmsDb.run(c -> new JsonObject()
+    Future<JsonObject> airms = liveDb.run(c -> new JsonObject()
         .put("sections", sections(c, now, steps, sectionStaleMs))
         .put("speedClasses", steps.legendJson())
         .put("rms", rms(c, now)));
-    Future<JsonObject> vd = vdDb.run(c -> screenlines(c, queries, now));
-    Future<JsonObject> f = Future.all(airms, vd).map(cf -> {
-      JsonObject out = airms.result().put("screenlines", vd.result()).put("generatedAtMs", now);
+    Future<JsonObject> lines = screenlines(vd, queries, now);
+    Future<JsonObject> f = Future.all(airms, lines).map(cf -> {
+      JsonObject out = airms.result().put("screenlines", lines.result()).put("generatedAtMs", now);
       current = out;
       return out;
     }).onFailure(e -> {
@@ -161,15 +165,57 @@ public final class LiveViewService {
 
   record ScreenlineQuery(NetworkConfig.ScreenlineDef def, String vdId, int volLimit, int volContinuous) { }
 
+  /** 一個月檔裡某支 VD 的資料：是否有這支 VD、近 80 分鐘各期（新的在前）。 */
+  record Found(boolean known, List<ScreenlineEvaluator.Sample> samples) { }
+
+  /**
+   * 讀 VD 月檔：近 80 分鐘可能跨到上個月，兩個月的檔都讀，再合併。
+   * 月檔不存在（剛換月、或資料已依保留期限刪除）就當作沒有資料。
+   */
+  static Future<JsonObject> screenlines(MonthlyStore vd, List<ScreenlineQuery> queries, long now) {
+    YearMonth to = MonthlyStore.monthOf(now);
+    YearMonth from = MonthlyStore.monthOf(now - ScreenlineEvaluator.WINDOW_MS);
+    List<Future<List<Found>>> parts = new ArrayList<>();
+    for (YearMonth m = from; !m.isAfter(to); m = m.plusMonths(1)) {
+      parts.add(vd.read(m, c -> collect(c, queries, now)));
+    }
+    return Future.all(parts).map(cf -> {
+      List<List<Found>> months = new ArrayList<>();
+      for (Future<List<Found>> p : parts) if (p.result() != null) months.add(p.result());
+      return evaluate(queries, months, now);
+    });
+  }
+
+  /** 單一月檔版本（測試與單月查詢用）。 */
   static JsonObject screenlines(Connection c, List<ScreenlineQuery> queries, long now) throws SQLException {
+    return evaluate(queries, List.of(collect(c, queries, now)), now);
+  }
+
+  static List<Found> collect(Connection c, List<ScreenlineQuery> queries, long now) throws SQLException {
+    List<Found> out = new ArrayList<>();
+    for (ScreenlineQuery q : queries) {
+      Long deviceId = deviceId(c, q.vdId());
+      out.add(new Found(deviceId != null, deviceId == null ? List.of() : samples(c, deviceId, now)));
+    }
+    return out;
+  }
+
+  /** months：每個月檔一份 collect 的結果（與 queries 同順序）。 */
+  static JsonObject evaluate(List<ScreenlineQuery> queries, List<List<Found>> months, long now) {
     JsonArray items = new JsonArray();
     Long newest = null;
     String newestRaw = null;
-    for (ScreenlineQuery q : queries) {
-      Long deviceId = deviceId(c, q.vdId());
-      List<ScreenlineEvaluator.Sample> samples = deviceId == null ? List.of() : samples(c, deviceId, now);
-      ScreenlineEvaluator.Result r = ScreenlineEvaluator.evaluate(samples, now, q.volLimit(), q.volContinuous(),
-          deviceId != null);
+    for (int i = 0; i < queries.size(); i++) {
+      ScreenlineQuery q = queries.get(i);
+      boolean known = false;
+      List<ScreenlineEvaluator.Sample> samples = new ArrayList<>();
+      for (List<Found> month : months) {
+        Found f = month.get(i);
+        known |= f.known();
+        samples.addAll(f.samples());
+      }
+      samples.sort((a, b) -> Long.compare(b.feedTimeMs(), a.feedTimeMs()));
+      ScreenlineEvaluator.Result r = ScreenlineEvaluator.evaluate(samples, now, q.volLimit(), q.volContinuous(), known);
       if (r.latestFeedTimeMs() != null && (newest == null || r.latestFeedTimeMs() > newest)) {
         newest = r.latestFeedTimeMs();
         newestRaw = r.latestFeedTimeRaw();

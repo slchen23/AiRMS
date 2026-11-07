@@ -11,7 +11,8 @@
   "secretsFile": "secrets.json",
   "storage": {
     "dataDir": "E:/airms-data",
-    "volumeMarker": ".airms-volume"
+    "volumeMarker": ".airms-volume",
+    "minFreePercent": 15
   },
   "feeds": {
     "http": {

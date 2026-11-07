@@ -4,6 +4,9 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import java.net.URI;
 import java.nio.file.Path;
+import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -21,13 +24,16 @@ public record AppConfig(
     XmlLimits xmlLimits,
     List<Feed> feeds,
     Retention retention,
-    Path networkFile) {
+    Backup backup,
+    Path networkFile,
+    List<String> notices) {
 
   public static final int SUPPORTED_SCHEMA_VERSION = 1;
 
   public record Http(String host, int port, boolean tlsEnabled, Path keystorePath) { }
 
-  public record Storage(Path dataDir, String volumeMarker) { }
+  /** minFreePercent：資料目錄所在磁碟剩餘空間低於這個百分比時，首頁顯示警告。 */
+  public record Storage(Path dataDir, String volumeMarker, int minFreePercent) { }
 
   public record FeedHttp(int connectTimeoutMs, int idleTimeoutMs, int downloadTimeoutMs, int maxBytes) { }
 
@@ -36,8 +42,18 @@ public record AppConfig(
   /** filter 依來源不同：section 用 freewayIds/milepost，rms 用 eqIdPrefixes，vd 不過濾。 */
   public record Feed(FeedKind kind, boolean enabled, URI url, int intervalSeconds, JsonObject filter) { }
 
-  /** 天數為正整數；VD 與原始 XML 永久保存，不在這裡設定。 */
-  public record Retention(int runEveryHours, int sectionHistoryDays, int rmsHistoryDays, int feedAttemptDays) { }
+  /**
+   * 資料保留的預設值（系統設定頁可改）。rawXmlDays：原始 XML 保留天數；其餘為月檔「本月以外再保留幾個月」。
+   * 0 表示不刪除。runEveryHours 只能在 config.json 設定。
+   */
+  public record Retention(int runEveryHours, int rawXmlDays, int vdMonths, int sectionMonths, int rmsMonths,
+                          int feedLogMonths) { }
+
+  /**
+   * 備份到外接硬碟。每台機器各自設定（測試機設 enabled=false）；修改後重啟生效。
+   * targetDir 內必須有 volumeMarker 標記檔才會寫入，避免硬碟沒接上時寫到 SD 卡的空資料夾。
+   */
+  public record Backup(boolean enabled, Path targetDir, String volumeMarker, LocalTime dailyAt, int coreKeep) { }
 
   public Feed feed(FeedKind kind) {
     return feeds.stream().filter(f -> f.kind() == kind).findFirst()
@@ -68,10 +84,9 @@ public record AppConfig(
     String dataDir = storage.getString("dataDir");
     if (blank(dataDir)) errors.add("storage.dataDir 未設定");
     String marker = storage.getString("volumeMarker", ".airms-volume");
-    if (blank(marker) || marker.contains("/") || marker.contains("\\")) {
-      errors.add("storage.volumeMarker 必須是單純的檔名");
-    }
-    Storage storageCfg = new Storage(blank(dataDir) ? null : Path.of(dataDir), marker);
+    if (!plainFileName(marker)) errors.add("storage.volumeMarker 必須是單純的檔名");
+    Storage storageCfg = new Storage(blank(dataDir) ? null : Path.of(dataDir), marker,
+        intIn(storage, "minFreePercent", 15, 1, 90, "storage.minFreePercent", errors));
 
     JsonObject feeds = section(json, "feeds", errors);
     JsonObject fh = feeds.getJsonObject("http", new JsonObject());
@@ -115,12 +130,22 @@ public record AppConfig(
       feedList.add(new Feed(kind, enabled, uri, interval, filter.copy()));
     }
 
+    List<String> notices = new ArrayList<>();
     JsonObject r = json.getJsonObject("retention", new JsonObject());
+    for (String old : List.of("sectionHistoryDays", "rmsHistoryDays", "feedAttemptDays")) {
+      if (r.containsKey(old)) {
+        notices.add("config.json 的 retention." + old + " 已不再使用（改為月檔保留月數，見 config.example.json），已略過");
+      }
+    }
     Retention retention = new Retention(
         intIn(r, "runEveryHours", 12, 1, 168, "retention.runEveryHours", errors),
-        intIn(r, "sectionHistoryDays", 760, 1, 36500, "retention.sectionHistoryDays", errors),
-        intIn(r, "rmsHistoryDays", 760, 1, 36500, "retention.rmsHistoryDays", errors),
-        intIn(r, "feedAttemptDays", 90, 1, 36500, "retention.feedAttemptDays", errors));
+        intIn(r, "rawXmlDays", 30, 0, 36500, "retention.rawXmlDays", errors),
+        intIn(r, "vdMonths", 12, 0, 1200, "retention.vdMonths", errors),
+        intIn(r, "sectionMonths", 25, 0, 1200, "retention.sectionMonths", errors),
+        intIn(r, "rmsMonths", 25, 0, 1200, "retention.rmsMonths", errors),
+        intIn(r, "feedLogMonths", 3, 0, 1200, "retention.feedLogMonths", errors));
+
+    Backup backup = parseBackup(json.getJsonObject("backup", new JsonObject()), storageCfg, errors);
 
     // 路網設定檔：不填就用程式內建的 network/network.json；要增減匝道時可指定外部檔案。
     Object networkFile = json.getValue("networkFile");
@@ -131,7 +156,38 @@ public record AppConfig(
       throw new IllegalArgumentException("設定檔有誤：\n- " + String.join("\n- ", errors));
     }
     return new AppConfig(httpCfg, Path.of(secrets), storageCfg, feedHttp, xmlLimits, List.copyOf(feedList), retention,
-        network);
+        backup, network, List.copyOf(notices));
+  }
+
+  private static Backup parseBackup(JsonObject b, Storage storage, List<String> errors) {
+    Object enabledValue = b.getValue("enabled");
+    if (enabledValue != null && !(enabledValue instanceof Boolean)) errors.add("backup.enabled 必須是 true 或 false");
+    boolean enabled = Boolean.TRUE.equals(enabledValue);
+    String target = b.getString("targetDir");
+    Path targetDir = blank(target) ? null : Path.of(target.trim());
+    if (enabled && targetDir == null) errors.add("backup.enabled 為 true 時必須設定 backup.targetDir");
+    if (enabled && targetDir != null && storage.dataDir() != null) {
+      Path t = targetDir.toAbsolutePath().normalize();
+      Path d = storage.dataDir().toAbsolutePath().normalize();
+      if (t.startsWith(d) || d.startsWith(t)) errors.add("backup.targetDir 不可與 storage.dataDir 相同或互相包含");
+    }
+    String marker = b.getString("volumeMarker", ".airms-backup");
+    if (!plainFileName(marker)) errors.add("backup.volumeMarker 必須是單純的檔名");
+    LocalTime dailyAt = LocalTime.of(2, 0);
+    String at = b.getString("dailyAt");
+    if (at != null) {
+      try {
+        dailyAt = LocalTime.parse(at.trim(), DateTimeFormatter.ofPattern("HH:mm"));
+      } catch (DateTimeParseException e) {
+        errors.add("backup.dailyAt 必須是 HH:mm，例如 02:00");
+      }
+    }
+    int keep = intIn(b, "coreKeep", 30, 1, 3650, "backup.coreKeep", errors);
+    return new Backup(enabled, targetDir, marker, dailyAt, keep);
+  }
+
+  private static boolean plainFileName(String s) {
+    return !blank(s) && !s.contains("/") && !s.contains("\\") && !s.equals(".") && !s.equals("..");
   }
 
   private static void validateFilter(FeedKind kind, JsonObject filter, List<String> errors) {

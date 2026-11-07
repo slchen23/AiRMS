@@ -10,7 +10,7 @@ import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
 
-/** auth.db 的登入紀錄與管理操作紀錄。只記嘗試的帳號名稱、結果與連線資訊，不記密碼。 */
+/** core.db 的登入紀錄與管理操作紀錄。只記嘗試的帳號名稱、結果與連線資訊，不記密碼。 */
 public final class AuthLogRepository {
   private AuthLogRepository() { }
 

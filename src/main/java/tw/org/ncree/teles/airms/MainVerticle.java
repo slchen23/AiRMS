@@ -14,16 +14,22 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import tw.org.ncree.teles.airms.auth.AuthService;
+import tw.org.ncree.teles.airms.backup.BackupService;
+import tw.org.ncree.teles.airms.backup.BackupVerticle;
 import tw.org.ncree.teles.airms.config.AppConfig;
 import tw.org.ncree.teles.airms.config.Secrets;
 import tw.org.ncree.teles.airms.config.TlsKeystore;
 import tw.org.ncree.teles.airms.db.Db;
+import tw.org.ncree.teles.airms.db.MonthlyStore;
 import tw.org.ncree.teles.airms.db.Schema;
+import tw.org.ncree.teles.airms.db.Series;
 import tw.org.ncree.teles.airms.feed.FeedHttpClient;
 import tw.org.ncree.teles.airms.feed.FeedStatusBoard;
 import tw.org.ncree.teles.airms.feed.FeedVerticle;
@@ -32,6 +38,7 @@ import tw.org.ncree.teles.airms.http.WebServer;
 import tw.org.ncree.teles.airms.parse.FeedTime;
 import tw.org.ncree.teles.airms.repo.ServiceRunRepository;
 import tw.org.ncree.teles.airms.repo.VdRepository;
+import tw.org.ncree.teles.airms.retention.RetentionService;
 import tw.org.ncree.teles.airms.retention.RetentionVerticle;
 import tw.org.ncree.teles.airms.settings.SettingsService;
 import tw.org.ncree.teles.airms.storage.DataDirLock;
@@ -42,8 +49,9 @@ import tw.org.ncree.teles.airms.view.NetworkConfig;
 import tw.org.ncree.teles.airms.view.RampService;
 
 /**
- * 啟動順序：讀設定 → 檢查外接硬碟標記檔 → 開三個資料庫並確認結構 → 載入系統設定與帳號
- * → 啟動三個來源抓取與資料保留 → 開 HTTPS。
+ * 啟動順序：讀設定 → 檢查資料目錄標記檔 → 開 core.db 與記憶體資料庫並確認結構
+ * → 載入系統設定、匝道、帳號與備份狀態 → 啟動三個來源抓取、資料保留與備份 → 開 HTTPS。
+ * 月檔在第一次寫入或讀取該月時才開啟。
  * 任何一步失敗就停止啟動並釋放已開啟的資源。設定檔路徑可用 -Dairms.config 指定，預設工作目錄的 config.json。
  */
 public final class MainVerticle extends VerticleBase {
@@ -85,19 +93,17 @@ public final class MainVerticle extends VerticleBase {
         .compose(buf -> vertx.executeBlocking(() -> build(new JsonObject(buf))))
         .compose(ctx -> {
           app = ctx;
-          return app.airmsDb().run(c -> {
-            Schema.migrateAirms(c);
+          return app.coreDb().run(c -> {
+            Schema.migrateCore(c);
             return null;
-          }).compose(v -> app.vdDb().run(c -> {
-            Schema.migrateVd(c);
-            return null;
-          })).compose(v -> app.authDb().run(c -> {
-            Schema.migrateAuth(c);
+          }).compose(v -> app.liveDb().run(c -> {
+            Schema.migrateLive(c);
             return null;
           }));
         })
         .compose(v -> app.settings().load())
         .compose(v -> app.ramps().load())
+        .compose(v -> app.backup().load())
         .compose(v -> app.auth().init())
         .compose(setupCode -> {
           housekeepingTimer = vertx.setPeriodic(AUTH_HOUSEKEEPING_MS, id -> app.auth().housekeeping());
@@ -134,6 +140,7 @@ public final class MainVerticle extends VerticleBase {
   /** worker 執行緒：讀設定、機密，驗證憑證與資料目錄，建立元件（不連網、不寫資料）。 */
   private AppContext build(JsonObject json) throws java.io.IOException {
     AppConfig config = AppConfig.parse(json);
+    for (String notice : config.notices()) log.warn(notice);
     if (config.http().tlsEnabled()) {
       // 先檢查憑證：新機器最常漏的就是憑證檔與 secrets.json（都不進 git），在動資料庫之前就說清楚
       TlsKeystore.Info tls = TlsKeystore.check(config.http().keystorePath(), Secrets.load(config.secretsFile()));
@@ -154,16 +161,21 @@ public final class MainVerticle extends VerticleBase {
     } catch (java.io.IOException e) {
       log.warn("清除暫存檔失敗：{}", e.getMessage());
     }
-    Db airms = new Db(vertx, volume.airmsDb(), "airms-db", Db.Durability.NORMAL);
-    Db vd = new Db(vertx, volume.vdHealthDb(), "airms-vd-db", Db.Durability.FULL);
-    Db authDb = new Db(vertx, volume.authDb(), "airms-auth-db", Db.Durability.FULL);
+    Db core = new Db(vertx, volume.coreDb(), "airms-core-db", Db.Durability.FULL);
+    Db live = Db.memory(vertx, "airms-live-db");
+    Map<Series, MonthlyStore> monthly = new EnumMap<>(Series.class);
+    for (Series s : Series.values()) monthly.put(s, new MonthlyStore(vertx, s, volume.monthlyDir(s)));
     Clock clock = Clock.systemUTC();
-    SettingsService settings = new SettingsService(airms, config, network);
-    AuthService auth = new AuthService(vertx, authDb, settings, clock::millis);
-    LiveViewService liveView = new LiveViewService(airms, vd, settings, network, clock::millis);
-    return new AppContext(config, clock, volume, airms, vd, authDb, new VdRepository(),
+    SettingsService settings = new SettingsService(core, config, network);
+    AuthService auth = new AuthService(vertx, core, settings, clock::millis);
+    LiveViewService liveView = new LiveViewService(live, monthly.get(Series.VD), settings, network, clock::millis);
+    BackupService backup = new BackupService(vertx, config.backup(), volume.rawXmlRoot(), core, monthly, clock);
+    if (config.backup().enabled()) {
+      log.info("備份：每天 {} 備份到 {}", config.backup().dailyAt(), config.backup().targetDir());
+    }
+    return new AppContext(config, clock, volume, core, live, Map.copyOf(monthly), new VdRepository(),
         archive, new FeedHttpClient(vertx, config.feedHttp()), new FeedStatusBoard(), settings, auth, network, liveView,
-        new RampService(airms, network), tlsCert);
+        new RampService(core, network), backup, tlsCert);
   }
 
   /** 憑證到期提醒：啟動時與之後每天一次（長時間不重啟的機器也看得到）；首頁另外顯示。 */
@@ -184,7 +196,7 @@ public final class MainVerticle extends VerticleBase {
   /** 記錄這次啟動；上次若不是正常停止，把停機區間寫進 log，方便對照資料缺口。 */
   private Future<Void> recordRunStart() {
     long now = app.clock().millis();
-    return app.airmsDb().tx(c -> {
+    return app.coreDb().tx(c -> {
       ServiceRunRepository.PreviousRun prev = ServiceRunRepository.previous(c);
       if (prev != null && prev.stoppedAtMs() == null) {
         log.warn("上次執行（#{}）沒有正常停止；最後心跳 {}，停機約 {} 分鐘，這段期間沒有抓取資料",
@@ -193,7 +205,7 @@ public final class MainVerticle extends VerticleBase {
       }
       runId = ServiceRunRepository.start(c, now, hostName(), APP_VERSION);
       return (Void) null;
-    }).onSuccess(v -> heartbeatTimer = vertx.setPeriodic(HEARTBEAT_MS, id -> app.airmsDb()
+    }).onSuccess(v -> heartbeatTimer = vertx.setPeriodic(HEARTBEAT_MS, id -> app.coreDb()
         .run(c -> {
           ServiceRunRepository.heartbeat(c, runId, app.clock().millis());
           return null;
@@ -207,7 +219,11 @@ public final class MainVerticle extends VerticleBase {
     for (AppConfig.Feed feed : app.config().feeds()) {
       deployments.add(vertx.deployVerticle(new FeedVerticle(app, feed), opts));
     }
-    deployments.add(vertx.deployVerticle(new RetentionVerticle(app), opts));
+    RetentionService retention = new RetentionService(vertx, app.settings(), app.volume().rawXmlRoot(), app.monthly(),
+        app.backup(), app.vdRepository(), app.clock());
+    deployments.add(vertx.deployVerticle(new RetentionVerticle(retention, app.config().retention().runEveryHours()),
+        opts));
+    deployments.add(vertx.deployVerticle(new BackupVerticle(app.backup(), app.clock()), opts));
     deployments.add(vertx.deployVerticle(new LiveViewVerticle(app.liveView()), opts));
     return Future.all(deployments).mapEmpty();
   }
@@ -255,7 +271,7 @@ public final class MainVerticle extends VerticleBase {
       closing.add(app.feedHttp().close());
       closing.add(app.auth().close());
       if (runId > 0) {
-        marked = app.airmsDb().run(c -> {
+        marked = app.coreDb().run(c -> {
           ServiceRunRepository.stop(c, runId, app.clock().millis());
           return (Void) null;
         }).recover(e -> {
@@ -266,9 +282,10 @@ public final class MainVerticle extends VerticleBase {
     }
     return marked.compose(v -> {
       if (app != null) {
-        closing.add(app.airmsDb().close());
-        closing.add(app.vdDb().close());
-        closing.add(app.authDb().close());
+        closing.add(app.backup().close());
+        for (MonthlyStore store : app.monthly().values()) closing.add(store.closeAll());
+        closing.add(app.liveDb().close());
+        closing.add(app.coreDb().close());
       }
       return Future.join(closing);
     }).eventually(() -> {

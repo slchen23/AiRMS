@@ -40,14 +40,11 @@ class AuthServiceTest {
 
     Env() throws Exception {
       Path dir = Files.createTempDirectory("airms-auth");
-      airms = new Db(vertx, dir.resolve("airms.db"), "t-airms", Db.Durability.NORMAL);
-      authDb = new Db(vertx, dir.resolve("auth.db"), "t-auth", Db.Durability.FULL);
+      // 帳號與系統設定都在 core.db
+      airms = new Db(vertx, dir.resolve("core.db"), "t-core", Db.Durability.FULL);
+      authDb = airms;
       await(airms.run(c -> {
-        Schema.migrateAirms(c);
-        return null;
-      }));
-      await(authDb.run(c -> {
-        Schema.migrateAuth(c);
+        Schema.migrateCore(c);
         return null;
       }));
       AppConfig config = AppConfig.parse(new JsonObject(
@@ -68,7 +65,6 @@ class AuthServiceTest {
     public void close() throws Exception {
       await(auth.close());
       await(airms.close());
-      await(authDb.close());
       await(vertx.close());
     }
   }

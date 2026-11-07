@@ -8,7 +8,7 @@ import java.sql.Statement;
 
 /**
  * service_run：程式每次啟動一列、每分鐘更新心跳、正常停止時寫入停止時間。
- * 日後分析資料缺口時，用它區分「本系統沒在跑」與「來源沒有資料」。只在 airms.db 的 Db 執行緒使用。
+ * 日後分析資料缺口時，用它區分「本系統沒在跑」與「來源沒有資料」。只在 core.db 的 Db 執行緒使用。
  */
 public final class ServiceRunRepository {
   private ServiceRunRepository() { }

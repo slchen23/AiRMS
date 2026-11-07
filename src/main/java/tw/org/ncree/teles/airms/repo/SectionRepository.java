@@ -7,7 +7,10 @@ import java.util.stream.Collectors;
 import tw.org.ncree.teles.airms.db.Schema;
 import tw.org.ncree.teles.airms.parse.SectionParser;
 
-/** 路段資料寫入 airms.db：最新表只會往新時間更新，歷史表同路段同時間只存一筆。只在 Db 執行緒使用。 */
+/**
+ * 路段資料：最新一筆寫入記憶體資料庫（section_latest，只會往新時間更新），
+ * 歷史寫入該月的 section_yyyyMM.db（同路段同時間只存一筆）。只在各自 Db 的執行緒使用。
+ */
 public final class SectionRepository {
   private SectionRepository() { }
 
@@ -29,10 +32,9 @@ public final class SectionRepository {
       + "direction_id, from_milepost, end_milepost, feed_time_ms, " + INTS + ", received_at_ms) "
       + "VALUES (?,?,?,?,?,?," + INT_MARKS + ",?)";
 
-  /** 回傳新增到歷史表的筆數（同時間重抓為 0）。 */
-  public static int write(Connection c, SectionParser.Snapshot s, long receivedAtMs) throws SQLException {
-    try (PreparedStatement latest = c.prepareStatement(LATEST);
-         PreparedStatement history = c.prepareStatement(HISTORY)) {
+  /** 更新記憶體中的最新一筆（舊時間的資料不會蓋掉新的）。 */
+  public static void writeLatest(Connection c, SectionParser.Snapshot s, long receivedAtMs) throws SQLException {
+    try (PreparedStatement latest = c.prepareStatement(LATEST)) {
       for (SectionParser.Row r : s.rows()) {
         int i = 1;
         latest.setString(i++, r.freewayId());
@@ -47,8 +49,16 @@ public final class SectionRepository {
         latest.setLong(i++, s.feedTimeMs());
         latest.setLong(i, receivedAtMs);
         latest.addBatch();
+      }
+      latest.executeBatch();
+    }
+  }
 
-        i = 1;
+  /** 寫入歷史；回傳新增的筆數（同時間重抓為 0）。 */
+  public static int writeHistory(Connection c, SectionParser.Snapshot s, long receivedAtMs) throws SQLException {
+    try (PreparedStatement history = c.prepareStatement(HISTORY)) {
+      for (SectionParser.Row r : s.rows()) {
+        int i = 1;
         history.setString(i++, r.freewayId());
         history.setString(i++, r.expresswayId());
         history.setString(i++, r.directionId());
@@ -59,7 +69,6 @@ public final class SectionRepository {
         history.setLong(i, receivedAtMs);
         history.addBatch();
       }
-      latest.executeBatch();
       return sum(history.executeBatch());
     }
   }

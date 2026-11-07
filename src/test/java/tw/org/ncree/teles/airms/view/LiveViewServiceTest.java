@@ -10,10 +10,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.time.YearMonth;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import tw.org.ncree.teles.airms.db.Db;
+import tw.org.ncree.teles.airms.db.MonthlyStore;
 import tw.org.ncree.teles.airms.db.Schema;
+import tw.org.ncree.teles.airms.db.Series;
 
 /** 從資料庫整理即時監視資料：路段、RMS、屏柵線（含同時間更正版與無效車道）。 */
 class LiveViewServiceTest {
@@ -31,8 +34,8 @@ class LiveViewServiceTest {
 
   @Test
   void sectionsAndRms() throws Exception {
-    try (Connection c = open("airms.db")) {
-      Schema.migrateAirms(c);
+    try (Connection c = Db.openMemory()) {
+      Schema.migrateLive(c);
       try (PreparedStatement ps = c.prepareStatement("""
           INSERT INTO section_latest(freeway_id, direction_id, from_location, from_milepost, end_location, end_milepost,
             section_average_speed, section_total_car_volume, feed_time_raw, feed_time_ms, updated_at_ms)
@@ -102,7 +105,7 @@ class LiveViewServiceTest {
 
   @Test
   void screenlineFromVdTables() throws Exception {
-    try (Connection c = open("vd_health.db")) {
+    try (Connection c = open("vd_202611.db")) {
       Schema.migrateVd(c);
       try (var st = c.createStatement()) {
         st.execute("INSERT INTO vd_device(device_id, eq_id, first_seen_ms) VALUES (1, 'VD-N1-S-109.250-M-LOOP', 0)");
@@ -135,6 +138,51 @@ class LiveViewServiceTest {
       assertTrue(b.getString("reason").contains("沒有這支 VD"));
       assertFalse(out.getBoolean("stale"));
     }
+  }
+
+  @Test
+  void screenlineSpansTwoMonthFiles() throws Exception {
+    io.vertx.core.Vertx vertx = io.vertx.core.Vertx.vertx();
+    MonthlyStore vd = new MonthlyStore(vertx, Series.VD, Files.createTempDirectory("airms-vdm"));
+    try {
+      // 11/1 00:20（台北）查詢：近 80 分鐘有 10/31 23:20～23:55 的 8 期（10 月檔）與 11/1 00:00～00:15 的 4 期（11 月檔）
+      long now = java.time.ZonedDateTime.of(2026, 11, 1, 0, 20, 0, 0, MonthlyStore.TAIPEI).toInstant().toEpochMilli();
+      long first = now - 60 * MIN;
+      for (int i = 0; i < 12; i++) {
+        long t = first + i * 5 * MIN;
+        int id = i + 1;
+        await(vd.forWrite(MonthlyStore.monthOf(t)).compose(db -> db.run(c -> {
+          try (var st = c.createStatement()) {
+            st.execute("INSERT OR IGNORE INTO vd_device(device_id, eq_id, first_seen_ms) VALUES (1, 'VD-X', 0)");
+            st.execute("INSERT OR IGNORE INTO vd_lane(lane_key, device_id, lane_ref, first_seen_ms) "
+                + "VALUES (11,1,'1',0),(12,1,'2',0),(13,1,'3',0)");
+          }
+          return insertSnapshot(c, id, t, new int[] {160, 160, 160});
+        })));
+      }
+      assertEquals(List.of(YearMonth.of(2026, 10), YearMonth.of(2026, 11)), vd.monthsOnDisk());
+      List<LiveViewService.ScreenlineQuery> q = List.of(new LiveViewService.ScreenlineQuery(
+          new NetworkConfig.ScreenlineDef("x", "測試", "1", "S", "VD-X", 5400, 450), "VD-X", 5400, 450));
+      JsonObject out = await(LiveViewService.screenlines(vd, q, now));
+      JsonObject a = out.getJsonArray("items").getJsonObject(0);
+      assertEquals(12, a.getInteger("periods"));            // 兩個月檔合併
+      assertEquals(Integer.valueOf(5760), a.getInteger("judge"));
+      assertEquals("VOLUME", a.getString("state"));
+      assertEquals("t12", a.getString("latestFeedTime"));   // 最新一期在 11 月檔
+
+      // 12 月初、11 月檔還在但 12 月檔還沒有：不建立空檔，只讀既有的
+      long dec = java.time.ZonedDateTime.of(2026, 12, 1, 0, 5, 0, 0, MonthlyStore.TAIPEI).toInstant().toEpochMilli();
+      JsonObject later = await(LiveViewService.screenlines(vd, q, dec));
+      assertEquals("ERROR", later.getJsonArray("items").getJsonObject(0).getString("state"));
+      assertFalse(vd.exists(YearMonth.of(2026, 12)));
+    } finally {
+      await(vd.closeAll());
+      await(vertx.close());
+    }
+  }
+
+  static <T> T await(io.vertx.core.Future<T> f) throws Exception {
+    return f.toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
   }
 
   private static int insertSnapshot(Connection c, int id, long t, int[] lanes) throws Exception {
