@@ -30,8 +30,10 @@ import tw.org.ncree.teles.airms.storage.DayDirs;
  * <ul>
  *   <li>原始 XML：cache/xml_raw/&lt;來源&gt;/yyyy/MM/dd 資料夾，保留最近 N 天（含今天）。</li>
  *   <li>月檔：本月以外再保留 N 個月，更舊的整個檔刪除。</li>
+ *   <li>程式 log：logs/airms-yyyy-MM-dd.log（log4j 每天換一個檔），依檔名日期保留最近 N 天（含今天）；
+ *       正在寫的 airms.log 與其他檔案不動。log 不備份，到期就刪除。</li>
  * </ul>
- * 設為 0 表示不刪除。啟用備份時，只刪除已確認備份到外接硬碟的日期與月份；
+ * 設為 0 表示不刪除。啟用備份時，原始 XML 與月檔只刪除已確認備份到外接硬碟的日期與月份；
  * 未啟用備份（測試機）時，到期就刪除。
  */
 public final class RetentionService {
@@ -39,16 +41,19 @@ public final class RetentionService {
 
   private final SettingsService settings;
   private final Path rawXmlRoot;
+  private final Path logDir;
   private final Map<Series, MonthlyStore> stores;
   private final BackupService backup;
   private final VdRepository vdRepository;
   private final Clock clock;
   private final WorkerExecutor worker;
 
-  public RetentionService(Vertx vertx, SettingsService settings, Path rawXmlRoot, Map<Series, MonthlyStore> stores,
-                          BackupService backup, VdRepository vdRepository, Clock clock) {
+  /** logDir：程式 log 資料夾（log4j2.xml 設定的 logs/）；null 表示不清 log。 */
+  public RetentionService(Vertx vertx, SettingsService settings, Path rawXmlRoot, Path logDir,
+                          Map<Series, MonthlyStore> stores, BackupService backup, VdRepository vdRepository, Clock clock) {
     this.settings = settings;
     this.rawXmlRoot = rawXmlRoot.toAbsolutePath().normalize();
+    this.logDir = logDir == null ? null : logDir.toAbsolutePath().normalize();
     this.stores = stores;
     this.backup = backup;
     this.vdRepository = vdRepository;
@@ -64,12 +69,14 @@ public final class RetentionService {
     JsonObject summary = new JsonObject();
     return done.compose(d -> worker.executeBlocking(() -> {
       purgeRawXml(rawXmlRoot, today(now), settings.intValue(SettingsService.RAW_XML_DAYS), gated, d, summary);
+      purgeLogs(logDir, today(now), settings.intValue(SettingsService.LOG_DAYS), summary);
       return null;
     }, true).compose(v -> purgeMonths(now, gated, d, summary)))
         .compose(v -> closeOldConnections(now))
         .map(v -> {
           int pending = summary.getInteger("rawDaysPendingBackup", 0) + summary.getInteger("monthsPendingBackup", 0);
-          if (summary.getInteger("rawDaysDeleted", 0) > 0 || !summary.getJsonArray("monthsDeleted").isEmpty()) {
+          if (summary.getInteger("rawDaysDeleted", 0) > 0 || !summary.getJsonArray("monthsDeleted").isEmpty()
+              || summary.getInteger("logFilesDeleted", 0) > 0) {
             log.info("資料保留：{}", summary.encode());
           }
           if (pending > 0) log.warn("資料保留：{} 個日期或月份已到期但尚未備份到外接硬碟，暫不刪除", pending);
@@ -108,6 +115,33 @@ public final class RetentionService {
       }
     }
     summary.put("rawDaysDeleted", deletedDays).put("rawFilesDeleted", deletedFiles).put("rawDaysPendingBackup", pending);
+  }
+
+  private static final java.util.regex.Pattern LOG_FILE =
+      java.util.regex.Pattern.compile("^airms-(\\d{4}-\\d{2}-\\d{2})\\.log(\\.gz)?$");
+
+  /** 刪除 logs/ 內檔名日期早於保留期間的每日 log 檔；只看檔名符合 airms-yyyy-MM-dd.log 的一般檔案。 */
+  static void purgeLogs(Path dir, LocalDate today, int days, JsonObject summary) {
+    int deleted = 0;
+    if (dir != null && days > 0 && Files.isDirectory(dir)) {
+      LocalDate keepFrom = today.minusDays(days - 1L);
+      try {
+        for (Path f : list(dir)) {
+          var m = LOG_FILE.matcher(f.getFileName().toString());
+          if (!m.matches() || !Files.isRegularFile(f, java.nio.file.LinkOption.NOFOLLOW_LINKS)) continue;
+          LocalDate date;
+          try {
+            date = LocalDate.parse(m.group(1));
+          } catch (java.time.format.DateTimeParseException e) {
+            continue;
+          }
+          if (date.isBefore(keepFrom) && Files.deleteIfExists(f)) deleted++;
+        }
+      } catch (IOException e) {
+        log.warn("清除舊 log 檔失敗：{}", e.getMessage());
+      }
+    }
+    summary.put("logFilesDeleted", deleted);
   }
 
   private Future<Void> purgeMonths(long now, boolean gated, Set<String> done, JsonObject summary) {

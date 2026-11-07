@@ -34,6 +34,7 @@ public final class SettingsService {
 
   public static final String TLS_EXPIRY_WARNING_DAYS = "tls.expiryWarningDays";
   public static final String RAW_XML_DAYS = "retention.rawXmlDays";
+  public static final String LOG_DAYS = "retention.logDays";
   public static final String SPEED_THRESHOLDS = "speed.thresholds";
   public static final String SPEED_LOW_NO_VOLUME = "speed.lowSpeedNoVolumeAsNoData";
   public static final String SPEED_STALE_MINUTES = "speed.staleMinutes";
@@ -91,6 +92,9 @@ public final class SettingsService {
         "RMS 歷史月檔在本月以外再保留幾個月；0 表示不刪除"));
     add(new Def(Series.FEEDLOG.retentionSetting(), rg, "抓取紀錄保留月數", Type.INT, 0, 1200, r.feedLogMonths(),
         "每次抓取的結果與原始檔索引，在本月以外再保留幾個月；0 表示不刪除"));
+    add(new Def(LOG_DAYS, rg, "程式 log 保留天數", Type.INT, 0, 36500, r.logDays(),
+        "程式工作目錄 logs 資料夾的每日 log 檔（airms-日期.log）保留最近幾天（含今天），超過的刪除；0 表示不刪除。"
+            + "log 檔不備份到外接硬碟，到期就刪除"));
     add(new Def("auth.sessionIdleMinutes", "登入安全", "閒置自動登出（分鐘）", Type.INT, 5, 720, 30,
         "超過這段時間沒有操作就需要重新登入"));
     add(new Def("auth.maxFailedLogins", "登入安全", "密碼錯誤幾次後冷卻", Type.INT, 3, 20, 5,

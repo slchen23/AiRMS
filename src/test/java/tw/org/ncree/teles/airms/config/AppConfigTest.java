@@ -30,6 +30,7 @@ class AppConfigTest {
     assertEquals(25, c.retention().sectionMonths());
     assertEquals(25, c.retention().rmsMonths());
     assertEquals(3, c.retention().feedLogMonths());
+    assertEquals(90, c.retention().logDays());
     assertFalse(c.backup().enabled());           // 範本預設不備份（測試機）
     assertEquals(java.time.LocalTime.of(2, 0), c.backup().dailyAt());
     assertEquals(30, c.backup().coreKeep());

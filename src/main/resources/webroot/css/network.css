@@ -56,3 +56,11 @@
 .bell-error .bell-cross { display: inline; }
 .net-bell .bell-cross { stroke: #000; }
 .net-bell.bell-error .bell-cross { stroke: #e00000; }
+
+/* 資料下載頁：可點選的匝道格與「⊙」選取標記；路線畫成綠色（同簡報） */
+.sel-hit { cursor: pointer; }
+.sel-mark { display: none; pointer-events: none; }
+.sel-mark.is-on { display: inline; }
+.sel-ring { fill: #fff; stroke: #0b3d91; stroke-width: 2.5; }
+.sel-dot { fill: #0b3d91; }
+.query-map .road-base { stroke: #19a339; }

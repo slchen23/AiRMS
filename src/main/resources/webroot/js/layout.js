@@ -7,7 +7,7 @@ const MENU = [
   { key: 'view', href: '/view.html', icon: 'display', label: '即時監視' },
   // perm：需要該權限才顯示（管理者都有）；登入狀態取得後才決定是否顯示
   { key: 'control', href: '/airms.html', icon: 'sliders', label: 'AiRMS 控制', perm: 'AIRMS_CONTROL' },
-  { key: 'query', icon: 'download', label: '資料下載', pending: true },
+  { key: 'query', href: '/query.html', icon: 'download', label: '資料下載', perm: 'DATA_DOWNLOAD' },
 ];
 
 const ADMIN_MENU = [

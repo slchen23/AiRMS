@@ -45,11 +45,11 @@ public record AppConfig(
   public record Feed(FeedKind kind, boolean enabled, URI url, int intervalSeconds, JsonObject filter) { }
 
   /**
-   * 資料保留的預設值（系統設定頁可改）。rawXmlDays：原始 XML 保留天數；其餘為月檔「本月以外再保留幾個月」。
-   * 0 表示不刪除。runEveryHours 只能在 config.json 設定。
+   * 資料保留的預設值（系統設定頁可改）。rawXmlDays：原始 XML 保留天數；logDays：程式 log 檔保留天數；
+   * 其餘為月檔「本月以外再保留幾個月」。0 表示不刪除。runEveryHours 只能在 config.json 設定。
    */
   public record Retention(int runEveryHours, int rawXmlDays, int vdMonths, int sectionMonths, int rmsMonths,
-                          int feedLogMonths) { }
+                          int feedLogMonths, int logDays) { }
 
   /**
    * 備份到外接硬碟。每台機器各自設定（測試機設 enabled=false）；修改後重啟生效。
@@ -152,7 +152,8 @@ public record AppConfig(
         intIn(r, "vdMonths", 12, 0, 1200, "retention.vdMonths", errors),
         intIn(r, "sectionMonths", 25, 0, 1200, "retention.sectionMonths", errors),
         intIn(r, "rmsMonths", 25, 0, 1200, "retention.rmsMonths", errors),
-        intIn(r, "feedLogMonths", 3, 0, 1200, "retention.feedLogMonths", errors));
+        intIn(r, "feedLogMonths", 3, 0, 1200, "retention.feedLogMonths", errors),
+        intIn(r, "logDays", 90, 0, 36500, "retention.logDays", errors));
 
     Backup backup = parseBackup(json.getJsonObject("backup", new JsonObject()), storageCfg, errors);
     AirmsDevice airms = parseAirmsDevice(json.getValue("airmsDevice"), errors);

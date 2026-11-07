@@ -395,3 +395,82 @@ body.layout-fixed .app-main.sections-main {
     min-width: 0;
   }
 }
+
+/* 資料下載頁（query.html）：版面同 AiRMS 控制頁，下方三個步驟 */
+.query-modes {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 1.25rem;
+}
+
+.query-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 1.05rem;
+  cursor: pointer;
+}
+
+.query-mode input {
+  width: 1.15rem;
+  height: 1.15rem;
+}
+
+.query-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+}
+
+.query-time {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0;
+  font-size: 0.9rem;
+  color: #ccc;
+}
+
+.query-time input {
+  width: 13rem;
+  cursor: pointer;
+  background: #fff;
+  color: #111;
+}
+
+#row-estimate.is-over {
+  color: #ff6b6b;
+  font-weight: 600;
+}
+
+.airms-hint.is-attention {
+  color: #ffe600;
+}
+
+/* 月曆標題顯示成「2026年 7月」（flatpickr 預設是月份在前） */
+.flatpickr-current-month {
+  display: flex;
+  flex-direction: row-reverse;
+  justify-content: center;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.flatpickr-current-month .numInputWrapper {
+  display: inline-flex;
+  align-items: center;
+  width: auto;
+}
+
+.flatpickr-current-month input.cur-year {
+  width: 4.5ch;
+  font-weight: 700;
+  color: inherit;
+}
+
+.flatpickr-current-month .numInputWrapper::after {
+  content: "年";
+  margin-left: 0.15rem;
+}

@@ -56,7 +56,8 @@
     "vdMonths": 12,
     "sectionMonths": 25,
     "rmsMonths": 25,
-    "feedLogMonths": 3
+    "feedLogMonths": 3,
+    "logDays": 90
   },
   "backup": {
     "enabled": false,

@@ -38,6 +38,7 @@ import tw.org.ncree.teles.airms.feed.FeedVerticle;
 import tw.org.ncree.teles.airms.feed.RawXmlArchive;
 import tw.org.ncree.teles.airms.http.WebServer;
 import tw.org.ncree.teles.airms.parse.FeedTime;
+import tw.org.ncree.teles.airms.query.RmsExportService;
 import tw.org.ncree.teles.airms.repo.ServiceRunRepository;
 import tw.org.ncree.teles.airms.repo.VdRepository;
 import tw.org.ncree.teles.airms.retention.RetentionService;
@@ -116,8 +117,7 @@ public final class MainVerticle extends VerticleBase {
         })
         .compose(v -> deployWorkers())
         .compose(v -> startHttp())
-        .onSuccess(s -> log.info("AiRMS {} 已啟動：{}://{}:{}/", APP_VERSION,
-            app.config().http().tlsEnabled() ? "https" : "http", app.config().http().host(), s.actualPort()))
+        .onSuccess(s -> log.info("AiRMS {} 已啟動：{}", APP_VERSION, openUrls(app.config().http(), s.actualPort())))
         .onFailure(MainVerticle::logStartFailure)
         .recover(error -> closeResources().transform(ignored -> Future.failedFuture(error)));
   }
@@ -181,9 +181,12 @@ public final class MainVerticle extends VerticleBase {
     AirmsClient airmsClient = new AirmsClient(vertx, airmsTarget, config.airmsDevice().connectTimeoutMs(),
         config.airmsDevice().responseTimeoutMs(), clock::millis);
     AirmsControlService airms = new AirmsControlService(core, airmsClient, airmsTarget, clock::millis);
+    RampService ramps = new RampService(core, network);
+    RmsExportService export = new RmsExportService(vertx, monthly.get(Series.RMS), ramps::effectiveNetwork,
+        volume.cacheRoot().resolve("export"), clock::millis);
     return new AppContext(config, clock, volume, core, live, Map.copyOf(monthly), new VdRepository(),
         archive, new FeedHttpClient(vertx, config.feedHttp()), new FeedStatusBoard(), settings, auth, network, liveView,
-        new RampService(core, network), backup, airms, tlsCert);
+        ramps, backup, airms, export, tlsCert);
   }
 
   /** 憑證到期提醒：啟動時與之後每天一次（長時間不重啟的機器也看得到）；首頁另外顯示。 */
@@ -227,8 +230,9 @@ public final class MainVerticle extends VerticleBase {
     for (AppConfig.Feed feed : app.config().feeds()) {
       deployments.add(vertx.deployVerticle(new FeedVerticle(app, feed), opts));
     }
-    RetentionService retention = new RetentionService(vertx, app.settings(), app.volume().rawXmlRoot(), app.monthly(),
-        app.backup(), app.vdRepository(), app.clock());
+    // log 資料夾與 log4j2.xml 的 fileName="logs/airms.log" 相同（程式工作目錄下的 logs）
+    RetentionService retention = new RetentionService(vertx, app.settings(), app.volume().rawXmlRoot(), Path.of("logs"),
+        app.monthly(), app.backup(), app.vdRepository(), app.clock());
     deployments.add(vertx.deployVerticle(new RetentionVerticle(retention, app.config().retention().runEveryHours()),
         opts));
     deployments.add(vertx.deployVerticle(new BackupVerticle(app.backup(), app.clock()), opts));
@@ -251,6 +255,19 @@ public final class MainVerticle extends VerticleBase {
         .requestHandler(WebServer.router(vertx, app))
         .listen()
         .onSuccess(s -> server = s);
+  }
+
+  /**
+   * 啟動 log 顯示「可以直接開的網址」。監聽 0.0.0.0（所有網路介面）時，0.0.0.0 本身不能拿來連線，
+   * 改列本機用的 localhost 與其他電腦用的主機名稱。
+   */
+  static String openUrls(AppConfig.Http h, int port) {
+    String scheme = h.tlsEnabled() ? "https" : "http";
+    String host = h.host();
+    if ("0.0.0.0".equals(host) || "::".equals(host) || host == null || host.isBlank()) {
+      return scheme + "://localhost:" + port + "/（本機）、" + scheme + "://" + hostName() + ":" + port + "/（其他電腦）";
+    }
+    return scheme + "://" + host + ":" + port + "/";
   }
 
   private static String hostName() {
@@ -278,6 +295,7 @@ public final class MainVerticle extends VerticleBase {
     if (app != null) {
       closing.add(app.feedHttp().close());
       closing.add(app.airms().close());
+      closing.add(app.export().close());
       closing.add(app.auth().close());
       if (runId > 0) {
         marked = app.coreDb().run(c -> {

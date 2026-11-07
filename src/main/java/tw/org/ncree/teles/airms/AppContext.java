@@ -13,6 +13,7 @@ import tw.org.ncree.teles.airms.db.Series;
 import tw.org.ncree.teles.airms.feed.FeedHttpClient;
 import tw.org.ncree.teles.airms.feed.FeedStatusBoard;
 import tw.org.ncree.teles.airms.feed.RawXmlArchive;
+import tw.org.ncree.teles.airms.query.RmsExportService;
 import tw.org.ncree.teles.airms.repo.VdRepository;
 import tw.org.ncree.teles.airms.settings.SettingsService;
 import tw.org.ncree.teles.airms.storage.DataVolume;
@@ -42,6 +43,7 @@ public record AppContext(
     RampService ramps,
     BackupService backup,
     AirmsControlService airms,
+    RmsExportService export,
     TlsKeystore.Cert tlsCert) {
 
   public static final String USER_AGENT = "AiRMS/" + MainVerticle.APP_VERSION;

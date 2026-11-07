@@ -67,7 +67,7 @@ class RetentionServiceTest {
       BackupService backup = new BackupService(vertx,
           new AppConfig.Backup(backupEnabled, target, ".airms-backup", LocalTime.of(2, 0), 30), raw, core, stores,
           Clock.fixed(Instant.ofEpochMilli(nowMs), ZoneOffset.UTC));
-      return new RetentionService(vertx, settings, raw, stores, backup, null,
+      return new RetentionService(vertx, settings, raw, data.resolve("logs"), stores, backup, null,
           Clock.fixed(Instant.ofEpochMilli(nowMs), ZoneOffset.UTC));
     }
 
@@ -163,6 +163,35 @@ class RetentionServiceTest {
       await(env.service(false, now).runOnce());
       assertTrue(env.hasDay("vd", "2020-01-01"));
       assertEquals(List.of(YearMonth.of(2020, 1)), env.stores.get(Series.VD).monthsOnDisk());
+    }
+  }
+
+  @Test
+  void oldLogFilesAreDeletedByFileDate() throws Exception {
+    try (Env env = new Env()) {
+      long now = taipei(2026, 11, 5, 10, 0);
+      Path logs = Files.createDirectories(env.data.resolve("logs"));
+      // 預設保留 90 天（含今天）：2026-08-08 起保留
+      List<String> names = List.of("airms.log", "airms-2026-08-07.log", "airms-2026-08-08.log", "airms-2026-11-04.log",
+          "airms-2025-01-01.log.gz", "other-2020-01-01.log", "airms-2020-13-01.log", "notes.txt");
+      for (String n : names) Files.writeString(logs.resolve(n), "x");
+      Files.createDirectories(logs.resolve("airms-2020-01-02.log"));        // 同名資料夾不動
+      JsonObject r = await(env.service(true, now).runOnce());                // 啟用備份也照天數刪（log 不備份）
+      assertEquals(2, r.getInteger("logFilesDeleted"));
+      assertFalse(Files.exists(logs.resolve("airms-2026-08-07.log")));
+      assertFalse(Files.exists(logs.resolve("airms-2025-01-01.log.gz")));
+      for (String keep : List.of("airms.log", "airms-2026-08-08.log", "airms-2026-11-04.log", "other-2020-01-01.log",
+          "airms-2020-13-01.log", "notes.txt", "airms-2020-01-02.log")) {
+        assertTrue(Files.exists(logs.resolve(keep)), keep);
+      }
+      await(env.settings.update(SettingsService.LOG_DAYS, 0, "admin", now));  // 0：不刪除
+      Files.writeString(logs.resolve("airms-2019-01-01.log"), "x");
+      assertEquals(0, await(env.service(false, now).runOnce()).getInteger("logFilesDeleted"));
+      assertTrue(Files.exists(logs.resolve("airms-2019-01-01.log")));
+      await(env.settings.update(SettingsService.LOG_DAYS, 2, "admin", now));  // 2 天：只留 11/04、11/05
+      assertEquals(2, await(env.service(false, now).runOnce()).getInteger("logFilesDeleted"));
+      assertTrue(Files.exists(logs.resolve("airms-2026-11-04.log")));
+      assertFalse(Files.exists(logs.resolve("airms-2026-08-08.log")));
     }
   }
 }

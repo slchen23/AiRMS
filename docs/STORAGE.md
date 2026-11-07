@@ -18,6 +18,7 @@
 ├─ .airms-volume                 標記檔（手動建立；沒有就拒絕啟動）
 ├─ .airms-lock                   同一資料目錄只能有一個 AiRMS
 ├─ cache/xml_raw/<來源>/yyyy/MM/dd/*.xml.gz
+├─ cache/export/                 資料下載（P5）產生中的暫存檔，送出後刪除
 └─ db/
    ├─ core.db
    ├─ vd/vd_yyyyMM.db
@@ -28,7 +29,7 @@
 
 | 檔案 | 內容 | 同步層級 | 刪除 |
 |---|---|---|---|
-| `core.db` | 帳號、權限、登入紀錄、操作紀錄、系統設定（`app_setting`）、路網匝道修改（`ramp_override`）、啟停紀錄（`service_run`）、備份紀錄（`backup_log`、`backup_done`）、AiRMS 設定紀錄（`airms_control_log`，P4 起，資料庫版本 2） | FULL | 不自動刪除 |
+| `core.db` | 帳號、權限、登入紀錄、操作紀錄、系統設定（`app_setting`）、路網匝道修改（`ramp_override`）、啟停紀錄（`service_run`）、備份紀錄（`backup_log`、`backup_done`）、AiRMS 設定紀錄（`airms_control_log`，P4 起；資料庫版本 2 建表、版本 3 加上「送出前」的讀取時間） | FULL | 不自動刪除 |
 | `vd_yyyyMM.db` | `vd_snapshot`、`vd_device`、`vd_lane`、`vd_device_sample`、`vd_lane_sample`（14 欄原值） | FULL | 保留月數 |
 | `section_yyyyMM.db` | `section_history` | NORMAL | 保留月數 |
 | `rms_yyyyMM.db` | `rms_history` | NORMAL | 保留月數 |
@@ -50,10 +51,12 @@
 | 路段保留月數 | 25 | 約 760 天 |
 | RMS 保留月數 | 25 | 約 760 天 |
 | 抓取紀錄保留月數 | 3 | |
+| 程式 log 保留天數 | 90 | 程式工作目錄 `logs/` 的每日 log 檔（`airms-yyyy-MM-dd.log`），依檔名日期保留最近 90 天（含今天）；正在寫的 `airms.log` 與其他檔案不動；log 不備份，到期就刪除 |
 
 - 設為 0 表示不刪除。
-- 預設值來自 `config.json` 的 `retention`（`rawXmlDays`、`vdMonths`、`sectionMonths`、`rmsMonths`、`feedLogMonths`）。
-- 清除每 `retention.runEveryHours` 小時（預設 12）執行一次；啟動後 10 分鐘第一次。
+- 預設值來自 `config.json` 的 `retention`（`rawXmlDays`、`vdMonths`、`sectionMonths`、`rmsMonths`、`feedLogMonths`、`logDays`）。
+- 清除每 `retention.runEveryHours` 小時（預設 12）執行一次；啟動後 10 分鐘第一次。原始 XML、月檔、log 檔在同一個排程裡處理。
+- log 檔原本由 log4j 自己刪除 30 天前的檔案，2026-11-07 起改由上面的排程依設定刪除（log4j2.xml 不再設定刪除）。
 - 月檔整個刪除（含 -wal、-shm），SD 卡空間立即釋放，不需要 VACUUM。
 - 舊設定 `retention.sectionHistoryDays` 等已不使用；`config.json` 還有的話啟動時 log 會提醒並略過。
 

@@ -7,6 +7,9 @@ initUser(shell).then((user) => {
   const can = (user.permissions || []).includes('AIRMS_CONTROL');
   document.getElementById('control-link').classList.toggle('d-none', !can);
   document.getElementById('control-no-perm').classList.toggle('d-none', can);
+  const canQuery = (user.permissions || []).includes('DATA_DOWNLOAD');
+  document.getElementById('query-link').classList.toggle('d-none', !canQuery);
+  document.getElementById('query-no-perm').classList.toggle('d-none', canQuery);
 });
 
 const STATE = {

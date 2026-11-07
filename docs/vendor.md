@@ -9,6 +9,7 @@
 | Bootstrap | 5.3.8 | `js/bootstrap.bundle.min.js`（含 Popper） | `bootstrap@5.3.8` |
 | Bootstrap Icons | 1.13.2 | `bootstrap-icons.min.css`、`fonts/*.woff2/.woff` | `bootstrap-icons@1.13.2` |
 | DataTables | 3.1.5 | `js/dataTables.min.js`、`js/dataTables.bootstrap5.min.js`、`css/dataTables.bootstrap5.min.css` | `datatables.net@3.1.5`、`datatables.net-bs5@3.1.5` |
+| flatpickr | 4.6.13 | `flatpickr.min.js`、`l10n/zh-tw.js`、`themes/dark.css`（資料下載頁的月曆，P5） | `flatpickr@4.6.13` |
 
 - DataTables 3 不需要 jQuery，P2 頁面都沒有載入 jQuery。之後的頁面若需要 jQuery 4，再同樣放進 vendor。
 - AdminLTE 預設字型 Source Sans 3 需要從 Google Fonts 下載，這裡不使用；改用系統字型（微軟正黑體／Noto Sans TC），定義在 `css/app.css`。
@@ -35,3 +36,7 @@
 | `datatables-3.1.5/css/dataTables.bootstrap5.min.css` | `5ff84d5553f3a60b4927ae5732c2e3799d10c348f10d5b5ebf49f0035352aa05` |
 | `datatables-3.1.5/js/dataTables.bootstrap5.min.js` | `f21ebd37ba224864e9224c99bd8d29895dfc36f4be4af516d4c48404017f6503` |
 | `datatables-3.1.5/js/dataTables.min.js` | `38017a5586acd9c6eb6bbfe8b6938e1a25bdc717c5acfcb07e0c9d663282c59d` |
+| `flatpickr-4.6.13/LICENSE.md` | `5fd57afc3905651175947ae44818e91ffcf5b605e4c88fac42d9700243bd9095` |
+| `flatpickr-4.6.13/flatpickr.min.js` | `1eeab1cb779471a0b0aaa93dd91c2eb1aa537d696f01ab05ea9dabc55e8525a1` |
+| `flatpickr-4.6.13/l10n/zh-tw.js` | `c57f9846f40d3299ff0057e5670c3b017c285b908eb30826a75360393731a3d2` |
+| `flatpickr-4.6.13/themes/dark.css` | `47798b76a38ac3a62b1ae658c566e0ed3b4cbcb115173ae620f0db8952f93612` |

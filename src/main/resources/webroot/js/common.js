@@ -96,6 +96,30 @@ export async function api(method, url, body) {
   return j;
 }
 
+/**
+ * 下載檔案（POST JSON，回傳 { blob, headers }）。錯誤時同 api() 丟 ApiError（伺服器回 JSON 的 error 訊息）。
+ */
+export async function apiDownload(url, body) {
+  const headers = { Accept: 'text/csv, application/json', 'Content-Type': 'application/json' };
+  if (csrfToken) headers['X-CSRF-Token'] = csrfToken;
+  let r;
+  try {
+    r = await fetch(url, { method: 'POST', headers, cache: 'no-store', body: JSON.stringify(body) });
+  } catch (e) {
+    throw new ApiError(0, '無法連線到伺服器');
+  }
+  if (!r.ok) {
+    let j = null;
+    try {
+      j = await r.json();
+    } catch (e) {
+      j = null;
+    }
+    throw new ApiError(r.status, (j && j.error) || `系統錯誤（${r.status}）`, j);
+  }
+  return { blob: await r.blob(), headers: r.headers };
+}
+
 /** 管理頁共用：登入逾時、需要先改密碼時自動轉頁；回傳 true 表示已處理（呼叫端不必再顯示錯誤）。 */
 export function handleAuthError(err) {
   if (!(err instanceof ApiError)) return false;

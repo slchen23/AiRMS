@@ -7,7 +7,7 @@
 - 套件：`tw.org.ncree.teles.airms`
 - 進度：P1 資料抓取與保存（`docs/P1.md`）、P2 帳號系統與管理工具頁（`docs/P2.md`）、
   P3 路網設定檔與即時監視頁 view.html（`docs/P3.md`）、資料保存改為 SD 卡＋月檔＋外接硬碟備份（`docs/STORAGE.md`）、
-  **P4 AiRMS 控制頁 airms.html**（`docs/P4.md`）
+  P4 AiRMS 控制頁 airms.html（`docs/P4.md`）、**P5 資料下載頁 query.html**（`docs/P5.md`）
 - 前端套件全部放在本機（`docs/vendor.md`），正式機不需要對外網路
 
 ## 第一次在 Windows 上執行
@@ -24,14 +24,17 @@
 4. 憑證密碼也可以改用環境變數 `AIRMS_TLS_KEYSTORE_PASSWORD`（優先於 secrets.json）。
 5. **執行**（工作目錄必須是專案資料夾）：
    - 開發：`gradlew run`
-   - 打包：`gradlew shadowJar` → `build/libs/airms-<版本>-fat.jar`（例如 `airms-0.4.0-fat.jar`），執行
-     `java -Duser.timezone=Asia/Taipei -jar build\libs\airms-0.4.0-fat.jar`
-   - 版本號只改 `build.gradle.kts` 的 `version`；啟動完成的 log「AiRMS 0.4.0 已啟動…」與 `service_run` 表都會記錄版本
+   - 打包：`gradlew shadowJar` → `build/libs/airms-<版本>-fat.jar`（例如 `airms-0.5.0-fat.jar`），執行
+     `java -Duser.timezone=Asia/Taipei -jar build\libs\airms-0.5.0-fat.jar`
+   - 版本號只改 `build.gradle.kts` 的 `version`；啟動完成的 log「AiRMS 0.5.0 已啟動…」與 `service_run` 表都會記錄版本
 6. **建立第一個管理者**：第一次啟動時 log 會印出一組設定碼，30 分鐘內打開
    `https://localhost:8081/setup.html` 輸入設定碼並設定管理者帳號密碼（沒有預設帳密）。
-7. 首頁 `https://localhost:8081/` 顯示三個來源的抓取狀態、資料目錄剩餘空間與備份狀態；即時監視頁 `https://localhost:8081/view.html`。
-   預設兩者都要登入（即時監視另需「監視」權限）；只在內網使用時，可到「系統設定 → 首頁與即時監視需要登入」關閉。
-   登入後右上角選單進入帳號設定，管理者左側有「使用者管理、登入管理、路網匝道、路網路段、系統設定」。
+7. 首頁 `https://localhost:8081/`（同一台電腦也可用 `https://127.0.0.1:8081/`；其他電腦用 `https://<主機名稱>:8081/`，啟動 log 會列出）
+   顯示三個來源的抓取狀態、資料目錄剩餘空間、備份與憑證狀態。功能頁面：
+   - 即時監視 `view.html`（P3）：預設要登入，且需「監視」或「AiRMS 控制」權限；只在內網使用時，可到「系統設定 → 首頁與即時監視需要登入」關閉
+   - AiRMS 控制 `airms.html`（P4）：需「AiRMS 控制」權限；設備 IP 在「系統設定 → AiRMS 設備」填
+   - 資料下載 `query.html`（P5）：需「資料下載」權限
+   左側選單依權限顯示；管理者另有「使用者管理、登入管理、路網匝道、路網路段、系統設定」。
 
 `config.json`、`secrets.json`、`*.pfx`、資料庫與原始 XML 都已列在 `.gitignore`。
 
@@ -78,11 +81,12 @@ airms-data/                      正式機在 SD 卡上
 ├─ .airms-volume                 標記檔（手動建立）
 ├─ .airms-lock                   執行中的程式持有的鎖（自動產生）
 ├─ cache/xml_raw/                三種來源的原始 XML（gzip），保留 30 天（可設定）
+├─ cache/export/                 資料下載產生中的暫存檔（送出後刪除）
 │  ├─ vd/2026/11/02/20261102_160512_<雜湊>.xml.gz
 │  ├─ section/…
 │  └─ rms/…
 └─ db/
-   ├─ core.db                    帳號、權限、登入與操作紀錄、系統設定、路網匝道修改、啟停與備份紀錄
+   ├─ core.db                    帳號、權限、登入與操作紀錄、系統設定、路網匝道修改、AiRMS 設定紀錄、啟停與備份紀錄
    ├─ vd/vd_202611.db            全部 VD 的車道原值，每月一個檔
    ├─ section/section_202611.db  路段歷史，每月一個檔
    ├─ rms/rms_202611.db          RMS 歷史，每月一個檔
@@ -108,7 +112,7 @@ gradlew test
 | `feeds.*.intervalSeconds` | 抓取間隔（每一輪完成後才排下一輪，不會堆積） |
 | `feeds.section.filter` | 只存國1、國3、起點里程 99000～270000 的路段 |
 | `feeds.rms.filter` | 只存 RMS-N1、RMS-N3 開頭的設備 |
-| `retention.*` | 保留期限的預設值：原始 XML 天數、VD／路段／RMS／抓取紀錄月數；0 表示不刪除（系統設定頁可改） |
+| `retention.*` | 保留期限的預設值：原始 XML 天數、VD／路段／RMS／抓取紀錄月數、程式 log 天數（預設 90）；0 表示不刪除（系統設定頁可改） |
 | `backup.*` | 是否備份到外接硬碟、備份位置、每天幾點；測試機設 `enabled: false`（見 `docs/STORAGE.md`） |
 | `storage.minFreePercent` | 資料目錄所在磁碟剩餘空間低於這個百分比時，首頁顯示警告（預設 15） |
 | `airmsDevice`（選填） | AiRMS 設備的預設 IP／port（系統設定頁可改）與連線、回覆逾時；範本 `host` 空白＝未設定。開發時可用 `tools/airms-sim` 模擬器（見 `docs/P4.md`） |

@@ -124,8 +124,18 @@ function bellIcon() {
   return g;
 }
 
-/** RMS 圓圈：單一、切 2 格（左右）、切 3 格（上、左下、右下）。 */
-function rampCircle(node, dir, ramp, rmsCells) {
+/** 選取標記「⊙」：外圈＋中心點，預設隱藏（資料下載頁用）。 */
+function selectMark(x, y, r) {
+  return el('g', { class: 'sel-mark', transform: `translate(${x},${y})` },
+    el('circle', { class: 'sel-ring', cx: 0, cy: 0, r }),
+    el('circle', { class: 'sel-dot', cx: 0, cy: 0, r: Math.max(2, r * 0.38) }));
+}
+
+/**
+ * RMS 圓圈：單一、切 2 格（左右）、切 3 格（上、左下、右下）。
+ * sel 不為 null 時（資料下載頁）每一格可點選：格子代碼為「匝道代碼#第幾格」，沒有 RMS 的匝道算 1 格；「外」不能選。
+ */
+function rampCircle(node, dir, ramp, rmsCells, sel) {
   const label = `${node.name}（${dir === 'S' ? '南下' : '北上'}）`;
   const g = el('g', { class: `ramp ramp-${ramp.kind}`, transform: `translate(${ramp.x},${ramp.y})` });
   g.append(el('circle', { class: 'ramp-circle', cx: 0, cy: 0, r: RADIUS }));
@@ -137,6 +147,15 @@ function rampCircle(node, dir, ramp, rmsCells) {
   }
   if (ramp.kind !== 'rms') {
     g.append(title(`${label}：目前沒有 RMS 資料`));
+    if (sel) {
+      const id = `${ramp.key}#0`;
+      const mark = selectMark(0, 0, 13);
+      const hit = el('circle', { class: 'ramp-hit sel-hit', cx: 0, cy: 0, r: RADIUS },
+        title(`${label}\n沒有 RMS（只會有 AI 儀控時制）\n點一下選取／取消`));
+      hit.addEventListener('click', () => sel.onClick(id));
+      g.append(mark, hit);
+      sel.cells.set(id, { mark, label, rms: null });
+    }
     return g;
   }
   const ids = ramp.rms;
@@ -162,6 +181,15 @@ function rampCircle(node, dir, ramp, rmsCells) {
       width: ids.length === 1 ? RADIUS * 2 : 22, height: ids.length === 3 ? (i === 0 ? 22 : 20) : RADIUS * 2 }, t);
     g.append(text, hit);
     rmsCells.set(normId(id), { text, title: t, label, id });
+    if (sel) {
+      const cellId = `${ramp.key}#${i}`;
+      const mark = selectMark(c.x, c.y, ids.length === 1 ? 13 : ids.length === 2 ? 8 : 6.5);
+      g.insertBefore(mark, hit);
+      hit.classList.add('sel-hit');
+      t.textContent = `${label}\n${id}\n點一下選取／取消`;
+      hit.addEventListener('click', () => sel.onClick(cellId));
+      sel.cells.set(cellId, { mark, label, rms: id });
+    }
   });
   return g;
 }
@@ -244,7 +272,8 @@ export function sectionKey(s) {
  * 畫出路網圖並回傳更新用的介面。
  * @param {SVGSVGElement} svg 目標 svg 元素（內容會被清空）
  * @param {object} net 路網設定檔
- * @param {object} [opts] onSectionClick(item)：點路段時呼叫（路網路段管理頁用）
+ * @param {object} [opts] onSectionClick(item)：點路段時呼叫（路網路段管理頁用）；
+ *   onCellClick(cellId)：匝道格可點選（資料下載頁用）；panels：false 時不畫圖例與資料時間
  */
 export function renderNetwork(svg, net, opts = {}) {
   const [vx, vy, vw, vh] = net.viewBox;
@@ -280,10 +309,12 @@ export function renderNetwork(svg, net, opts = {}) {
   const labels = el('g', { class: 'net-labels' });
   const ramps = el('g', { class: 'net-ramps' });
   const rmsCells = new Map();
+  const sel = opts.onCellClick ? { cells: new Map(), onClick: opts.onCellClick } : null;
   for (const node of net.nodes) {
     labels.append(labelGroup(node));
     for (const [dir, ramp] of Object.entries(node.ramps || {})) {
-      ramps.append(rampCircle(node, dir, ramp, rmsCells));
+      if (ramp.visible === false) continue;
+      ramps.append(rampCircle(node, dir, ramp, rmsCells, sel));
     }
   }
   svg.append(labels, ramps);
@@ -305,7 +336,7 @@ export function renderNetwork(svg, net, opts = {}) {
 
   const timeRefs = {};
   const legendRefs = new Map();
-  if (net.panels) {
+  if (net.panels && opts.panels !== false) {
     svg.append(legend(net, net.panels.legend, legendRefs), timesPanel(net.panels.times, timeRefs));
   }
   const highlightLayer = el('g', { class: 'net-highlight' });
@@ -314,6 +345,15 @@ export function renderNetwork(svg, net, opts = {}) {
   const colors = new Map(net.speedClasses.map((c) => [c.key, c.color]));
 
   return {
+    /** 可選的格子代碼（資料下載頁）。 */
+    selectableIds() {
+      return sel ? [...sel.cells.keys()] : [];
+    },
+    /** 顯示或取消某一格的「⊙」。 */
+    setSelected(cellId, on) {
+      const c = sel && sel.cells.get(cellId);
+      if (c) c.mark.classList.toggle('is-on', Boolean(on));
+    },
     /** sections: [{freewayId, directionId, from, to, cls, speed, volume}] */
     updateSections(items) {
       for (const { layer } of sectionLayers.values()) layer.replaceChildren();

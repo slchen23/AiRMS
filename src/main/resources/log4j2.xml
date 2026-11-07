@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- log 寫在工作目錄的 logs/，保留 30 天。訊息中的外部字串已在程式內去除換行，避免 log 注入。 -->
+<!-- log 寫在工作目錄的 logs/，每天一個檔。保留天數在系統設定「資料保留 → 程式 log 保留天數」（預設 90 天），
+     由程式的資料保留排程刪除，這裡不另外設定刪除。訊息中的外部字串已在程式內去除換行，避免 log 注入。 -->
 <Configuration status="off" name="AiRMS" shutdownHook="disable">
   <Appenders>
     <Console name="stdout" target="SYSTEM_OUT">
@@ -10,12 +11,7 @@
       <Policies>
         <TimeBasedTriggeringPolicy interval="1" modulate="true"/>
       </Policies>
-      <DefaultRolloverStrategy>
-        <Delete basePath="logs" maxDepth="1">
-          <IfFileName glob="airms-*.log"/>
-          <IfLastModified age="30d"/>
-        </Delete>
-      </DefaultRolloverStrategy>
+      <DefaultRolloverStrategy/>
     </RollingFile>
     <Null name="discardOverflow"/>
     <Async name="asyncLog" bufferSize="8192" blocking="false" errorRef="discardOverflow"
