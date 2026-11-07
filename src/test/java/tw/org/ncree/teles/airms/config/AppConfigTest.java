@@ -35,6 +35,27 @@ class AppConfigTest {
     assertEquals(30, c.backup().coreKeep());
     assertEquals(15, c.storage().minFreePercent());
     assertTrue(c.notices().isEmpty());
+    assertEquals("", c.airmsDevice().host());     // 範本不放設備位址，在系統設定頁或 config.json 填
+    assertEquals(9876, c.airmsDevice().port());
+    assertEquals(2000, c.airmsDevice().connectTimeoutMs());
+    assertEquals(5000, c.airmsDevice().responseTimeoutMs());
+  }
+
+  @Test
+  void airmsDeviceIsOptionalAndValidated() throws Exception {
+    JsonObject j = example();
+    j.remove("airmsDevice");
+    assertEquals(9876, AppConfig.parse(j).airmsDevice().port());
+    j.put("airmsDevice", new JsonObject().put("host", " 10.0.0.9 ").put("port", 7000));
+    AppConfig c = AppConfig.parse(j);
+    assertEquals("10.0.0.9", c.airmsDevice().host());
+    assertEquals(7000, c.airmsDevice().port());
+    j.put("airmsDevice", new JsonObject().put("host", "http://10.0.0.9").put("port", 70000)
+        .put("responseTimeoutMs", 10));
+    IllegalArgumentException e = assertThrows(IllegalArgumentException.class, () -> AppConfig.parse(j));
+    assertTrue(e.getMessage().contains("airmsDevice.host"));
+    assertTrue(e.getMessage().contains("airmsDevice.port"));
+    assertTrue(e.getMessage().contains("airmsDevice.responseTimeoutMs"));
   }
 
   @Test

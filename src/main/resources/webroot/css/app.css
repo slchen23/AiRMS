@@ -83,7 +83,7 @@ table.dataTable th.text-nowrap {
   min-width: 0;
 }
 
-/* 即時監視頁（view2）：全螢幕黑底 */
+/* 即時監視頁（view.html）：全螢幕黑底 */
 body.view-page {
   background: #000;
   color: #fff;
@@ -192,4 +192,206 @@ body.layout-fixed .app-main.sections-main {
 
 .speed-swatch {
   vertical-align: -3px;
+}
+
+/* AiRMS 控制頁（airms.html）：路網圖同即時監視頁，下方為設備狀態、設定與紀錄摘要 */
+.view-tools {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+.view-user {
+  color: #ddd;
+  font-size: 0.9rem;
+}
+
+/* 狀態文字放不下時截斷（滑鼠移上去看完整內容），不把右側按鈕擠到下一行 */
+.airms-page .view-status {
+  flex: 1 1 6rem;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.airms-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.5rem 0.75rem 0.75rem;
+  background: #0b0b0b;
+  border-top: 1px solid #333;
+}
+
+.airms-box {
+  flex: 1 1 18rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.4rem;
+  padding: 0.6rem 0.8rem;
+  background: #151515;
+  border: 1px solid #3a3a3a;
+  border-radius: 0.5rem;
+}
+
+#set-box {
+  flex: 1.6 1 30rem;
+  align-items: stretch;
+}
+
+.airms-box-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 700;
+  color: #ffe600;
+}
+
+.airms-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1.75rem;
+}
+
+.airms-k {
+  margin-right: 0.5rem;
+  color: #bbb;
+}
+
+.airms-v {
+  font-size: 2rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.airms-v.is-on {
+  color: #3ddc84;
+}
+
+.airms-v.is-off {
+  color: #ff8c1a;
+}
+
+.airms-v.is-stale {
+  opacity: 0.45;
+}
+
+.airms-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.25rem 1rem;
+  font-size: 0.85rem;
+  color: #aaa;
+}
+
+.airms-error {
+  min-height: 1.2em;
+  font-size: 0.9rem;
+  color: #ff6b6b;
+}
+
+.airms-param {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 1rem;
+}
+
+.airms-param-label {
+  min-width: 15rem;
+  margin: 0;
+  font-weight: 600;
+}
+
+.airms-range {
+  display: flex;
+  flex: 1 1 14rem;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.airms-range .form-range {
+  flex: 1;
+}
+
+.airms-range-value {
+  width: 3ch;
+  font-size: 1.6rem;
+  font-weight: 700;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.airms-switch {
+  margin: 0;
+  font-size: 1.4rem;
+}
+
+.airms-switch .form-check-label {
+  min-width: 3ch;
+  font-weight: 700;
+}
+
+.airms-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin-top: 0.25rem;
+}
+
+.airms-hint {
+  font-size: 0.9rem;
+  color: #bbb;
+}
+
+.airms-summary {
+  align-self: stretch;
+  min-width: 0;
+  min-height: 7.6em;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.airms-summary li {
+  overflow: hidden;
+  padding: 0.05rem 0;
+  border-bottom: 1px dashed #2a2a2a;
+  color: #aaa;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.airms-summary li:first-child {
+  font-weight: 600;
+  color: #fff;
+}
+
+/* 寬螢幕：路網圖與控制區放在同一個畫面，不必捲動（路網圖依剩餘高度縮放） */
+@media (min-width: 1200px) and (min-height: 700px) {
+  body.airms-page {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+  }
+
+  body.airms-page .view-map {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+  }
+
+  body.airms-page .view-map svg {
+    height: 100%;
+    min-width: 0;
+  }
 }

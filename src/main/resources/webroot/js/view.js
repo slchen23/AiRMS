@@ -1,6 +1,6 @@
-// 即時監視頁 view2：開頁時畫路網並載入一次資料；按「開始監控」後依間隔定時更新（同舊 view.html）。
-import { api, fmtTime, handleAuthError } from './common.js';
-import { renderNetwork } from './network-svg.js';
+// 即時監視頁 view.html：開頁時畫路網並載入一次資料；按「開始監控」後依間隔定時更新（同舊系統的 view.html）。
+import { handleAuthError } from './common.js';
+import { createLiveMap } from './live-map.js';
 
 const MIN_INTERVAL = 10;
 const MAX_INTERVAL = 600;
@@ -10,7 +10,7 @@ const intervalInput = document.getElementById('watch-interval');
 const statusEl = document.getElementById('view-status');
 const svg = document.getElementById('network');
 
-let view = null;
+let map = null;
 let timer = null;
 let loading = false;
 
@@ -19,27 +19,11 @@ function setStatus(text, isError = false) {
   statusEl.classList.toggle('is-error', isError);
 }
 
-/** 來源檔頭時間「2026-11-03 08:55:31」→「2026/11/03 08:55:31」。 */
-function feedTimeText(block) {
-  if (!block || !block.feedTime) return null;
-  return [block.feedTime.replaceAll('-', '/'), Boolean(block.stale)];
-}
-
 async function refresh() {
-  if (loading || !view) return;
+  if (loading || !map) return;
   loading = true;
   try {
-    const live = await api('GET', '/api/view/live');
-    view.updateLegend(live.speedClasses);
-    view.updateSections(live.sections.items);
-    view.updateRms(live.rms.items);
-    view.updateScreenlines(live.screenlines.items);
-    view.updateTimes({
-      sections: feedTimeText(live.sections),
-      rms: feedTimeText(live.rms),
-      screenlines: feedTimeText(live.screenlines),
-      refreshed: [fmtTime(Date.now()), false],
-    });
+    await map.refresh();
     setStatus(timer ? `監控中，每 ${currentInterval()} 秒更新` : '已載入最新資料（未啟動定時更新）');
   } catch (e) {
     // 需要登入時（例如閒置過久或程式重新啟動後登入失效）轉到登入頁，登入後回到這裡
@@ -84,8 +68,7 @@ document.getElementById('fullscreen-btn').addEventListener('click', () => {
 
 (async () => {
   try {
-    const net = await api('GET', '/api/view/network');
-    view = renderNetwork(svg, net);
+    map = await createLiveMap(svg);
     await refresh();
   } catch (e) {
     if (handleAuthError(e)) return;

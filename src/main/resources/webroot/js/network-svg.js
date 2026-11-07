@@ -1,4 +1,4 @@
-// 路網圖 SVG 共用元件（view2、airms2、query 共用）。
+// 路網圖 SVG 共用元件（即時監視、AiRMS 控制、資料下載共用）。
 // 依 /api/view/network 的設定檔畫出路線、匝道圓圈、標籤、方向與屏柵線鈴，再由 update* 函式套上即時資料。
 // 只用 SVG 屬性與 class（CSP 不允許 inline style），文字一律 textContent。
 

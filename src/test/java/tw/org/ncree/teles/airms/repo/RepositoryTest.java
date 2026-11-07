@@ -144,11 +144,12 @@ class RepositoryTest {
     try (Connection c = open("core.db")) {
       Schema.migrateCore(c);
       Schema.migrateCore(c);
-      assertEquals(1, count(c, "PRAGMA user_version"));
+      assertEquals(3, count(c, "PRAGMA user_version"));
+      assertEquals(1, count(c, "SELECT COUNT(*) FROM pragma_table_info('airms_control_log') WHERE name='before_at_ms'"));
       assertEquals(Schema.CORE_APP_ID, count(c, "PRAGMA application_id"));
-      assertEquals(9, count(c, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN "
+      assertEquals(10, count(c, "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name IN "
           + "('account','account_permission','login_history','audit_log','app_setting','ramp_override',"
-          + "'service_run','backup_log','backup_done')"));
+          + "'service_run','backup_log','backup_done','airms_control_log')"));
       assertThrows(IllegalStateException.class, () -> Schema.migrateVd(c));
       assertThrows(IllegalStateException.class, () -> Schema.migrateSection(c));
     }

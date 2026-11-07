@@ -28,7 +28,7 @@
 
 | 檔案 | 內容 | 同步層級 | 刪除 |
 |---|---|---|---|
-| `core.db` | 帳號、權限、登入紀錄、操作紀錄、系統設定（`app_setting`）、路網匝道修改（`ramp_override`）、啟停紀錄（`service_run`）、備份紀錄（`backup_log`、`backup_done`） | FULL | 不自動刪除 |
+| `core.db` | 帳號、權限、登入紀錄、操作紀錄、系統設定（`app_setting`）、路網匝道修改（`ramp_override`）、啟停紀錄（`service_run`）、備份紀錄（`backup_log`、`backup_done`）、AiRMS 設定紀錄（`airms_control_log`，P4 起，資料庫版本 2） | FULL | 不自動刪除 |
 | `vd_yyyyMM.db` | `vd_snapshot`、`vd_device`、`vd_lane`、`vd_device_sample`、`vd_lane_sample`（14 欄原值） | FULL | 保留月數 |
 | `section_yyyyMM.db` | `section_history` | NORMAL | 保留月數 |
 | `rms_yyyyMM.db` | `rms_history` | NORMAL | 保留月數 |

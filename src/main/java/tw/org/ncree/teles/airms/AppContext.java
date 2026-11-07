@@ -6,6 +6,7 @@ import tw.org.ncree.teles.airms.auth.AuthService;
 import tw.org.ncree.teles.airms.backup.BackupService;
 import tw.org.ncree.teles.airms.config.AppConfig;
 import tw.org.ncree.teles.airms.config.TlsKeystore;
+import tw.org.ncree.teles.airms.control.AirmsControlService;
 import tw.org.ncree.teles.airms.db.Db;
 import tw.org.ncree.teles.airms.db.MonthlyStore;
 import tw.org.ncree.teles.airms.db.Series;
@@ -40,6 +41,7 @@ public record AppContext(
     LiveViewService liveView,
     RampService ramps,
     BackupService backup,
+    AirmsControlService airms,
     TlsKeystore.Cert tlsCert) {
 
   public static final String USER_AGENT = "AiRMS/" + MainVerticle.APP_VERSION;

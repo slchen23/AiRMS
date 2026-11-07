@@ -26,6 +26,8 @@ import tw.org.ncree.teles.airms.backup.BackupVerticle;
 import tw.org.ncree.teles.airms.config.AppConfig;
 import tw.org.ncree.teles.airms.config.Secrets;
 import tw.org.ncree.teles.airms.config.TlsKeystore;
+import tw.org.ncree.teles.airms.control.AirmsClient;
+import tw.org.ncree.teles.airms.control.AirmsControlService;
 import tw.org.ncree.teles.airms.db.Db;
 import tw.org.ncree.teles.airms.db.MonthlyStore;
 import tw.org.ncree.teles.airms.db.Schema;
@@ -173,9 +175,15 @@ public final class MainVerticle extends VerticleBase {
     if (config.backup().enabled()) {
       log.info("備份：每天 {} 備份到 {}", config.backup().dailyAt(), config.backup().targetDir());
     }
+    // AiRMS 設備位址每次對話前從系統設定取得（可在網頁上改，不必重啟）
+    AirmsClient.TargetSource airmsTarget = () -> new AirmsClient.Target(
+        settings.stringValue(SettingsService.AIRMS_HOST), settings.intValue(SettingsService.AIRMS_PORT));
+    AirmsClient airmsClient = new AirmsClient(vertx, airmsTarget, config.airmsDevice().connectTimeoutMs(),
+        config.airmsDevice().responseTimeoutMs(), clock::millis);
+    AirmsControlService airms = new AirmsControlService(core, airmsClient, airmsTarget, clock::millis);
     return new AppContext(config, clock, volume, core, live, Map.copyOf(monthly), new VdRepository(),
         archive, new FeedHttpClient(vertx, config.feedHttp()), new FeedStatusBoard(), settings, auth, network, liveView,
-        new RampService(core, network), backup, tlsCert);
+        new RampService(core, network), backup, airms, tlsCert);
   }
 
   /** 憑證到期提醒：啟動時與之後每天一次（長時間不重啟的機器也看得到）；首頁另外顯示。 */
@@ -269,6 +277,7 @@ public final class MainVerticle extends VerticleBase {
     Future<Void> marked = Future.succeededFuture();
     if (app != null) {
       closing.add(app.feedHttp().close());
+      closing.add(app.airms().close());
       closing.add(app.auth().close());
       if (runId > 0) {
         marked = app.coreDb().run(c -> {

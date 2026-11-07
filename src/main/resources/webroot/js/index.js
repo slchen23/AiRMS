@@ -2,7 +2,12 @@ import { api, fmtTime, h } from './common.js';
 import { initUser, renderShell } from './layout.js';
 
 const shell = renderShell('home');
-initUser(shell);
+initUser(shell).then((user) => {
+  if (!user) return;
+  const can = (user.permissions || []).includes('AIRMS_CONTROL');
+  document.getElementById('control-link').classList.toggle('d-none', !can);
+  document.getElementById('control-no-perm').classList.toggle('d-none', can);
+});
 
 const STATE = {
   OK: ['success', '正常'],

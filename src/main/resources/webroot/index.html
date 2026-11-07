@@ -25,7 +25,7 @@
               <div class="card-body">
                 <h5 class="mb-2"><i class="bi bi-display" aria-hidden="true"></i> 即時監視</h5>
                 <p class="card-text text-secondary">路網圖顯示各路段速度、匝道儀控狀態與屏柵線告警。</p>
-                <a class="btn btn-primary btn-sm" href="/view2.html"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> 開啟即時監視</a>
+                <a class="btn btn-primary btn-sm" href="/view.html"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> 開啟即時監視</a>
               </div>
             </div>
           </div>
@@ -33,7 +33,9 @@
             <div class="card h-100">
               <div class="card-body">
                 <h5 class="mb-2"><i class="bi bi-sliders" aria-hidden="true"></i> AiRMS 控制</h5>
-                <p class="card-text text-secondary">調整敏感度與啟停，需登入且具備權限（建置中）。</p>
+                <p class="card-text text-secondary">讀取與設定 AiRMS 儀控敏感性、開／關，需具備「AiRMS 控制」權限。</p>
+                <a class="btn btn-primary btn-sm d-none" id="control-link" href="/airms.html"><i class="bi bi-box-arrow-up-right" aria-hidden="true"></i> 開啟 AiRMS 控制</a>
+                <span class="small text-secondary d-none" id="control-no-perm">目前帳號沒有這個權限。</span>
               </div>
             </div>
           </div>

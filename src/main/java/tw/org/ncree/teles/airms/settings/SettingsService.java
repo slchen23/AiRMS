@@ -30,13 +30,15 @@ import tw.org.ncree.teles.airms.view.TrafficRules;
 public final class SettingsService {
 
   /** SPEED_STEPS：路段速度分級的 4 個門檻，存成「20, 40, 60, 80」這樣的文字。 */
-  public enum Type { BOOL, INT, URL, VD_ID, SPEED_STEPS }
+  public enum Type { BOOL, INT, URL, VD_ID, SPEED_STEPS, HOST }
 
   public static final String TLS_EXPIRY_WARNING_DAYS = "tls.expiryWarningDays";
   public static final String RAW_XML_DAYS = "retention.rawXmlDays";
   public static final String SPEED_THRESHOLDS = "speed.thresholds";
   public static final String SPEED_LOW_NO_VOLUME = "speed.lowSpeedNoVolumeAsNoData";
   public static final String SPEED_STALE_MINUTES = "speed.staleMinutes";
+  public static final String AIRMS_HOST = "airms.host";
+  public static final String AIRMS_PORT = "airms.port";
   private static final int SPEED_MAX = 200;
 
   public record Def(String key, String group, String label, Type type, int min, int max, Object defaultValue,
@@ -98,7 +100,7 @@ public final class SettingsService {
     add(new Def("auth.cooldownSeconds", "登入安全", "冷卻時間（秒）", Type.INT, 10, 86400, 60,
         "冷卻期間再嘗試登入不會延長冷卻；管理者也可以在使用者管理頁手動解除"));
     add(new Def("view.requireLogin", "即時監視", "首頁與即時監視需要登入", Type.BOOL, 0, 1, true,
-        "開啟（預設）時，首頁需要登入，即時監視 view2 需要登入且有「監視」權限；"
+        "開啟（預設）時，首頁需要登入，即時監視需要登入且有「監視」或「AiRMS 控制」權限；"
             + "關閉則兩者都不需登入，只適合放在內網、沒有對外開放時"));
     add(new Def(TLS_EXPIRY_WARNING_DAYS, "HTTPS 憑證", "到期前幾天開始提醒", Type.INT, 7, 3650, 90,
         "憑證剩下的天數少於這個值時，首頁顯示提醒、log 每天記一次警告。憑證本身的有效期限在產生時決定"
@@ -110,6 +112,11 @@ public final class SettingsService {
         "速度 ≤ 第 1 個門檻且流量為 0 時畫白色（同舊系統）；關閉則畫紫色"));
     add(new Def(SPEED_STALE_MINUTES, sg, "路段資料過時（分鐘）", Type.INT, 1, 120, 10,
         "某路段比最新資料舊超過這個時間就畫白色；整個路段來源超過這個時間沒更新，畫面上的資料時間顯示紅字"));
+    AppConfig.AirmsDevice dev = config.airmsDevice();
+    add(new Def(AIRMS_HOST, "AiRMS 設備", "設備 IP 或主機名稱", Type.HOST, 0, 0, dev.host(),
+        "「AiRMS 控制」頁讀取與設定敏感性、開關時連線的 AiRMS 設備；空白表示尚未設定。下一次讀取或送出生效"));
+    add(new Def(AIRMS_PORT, "AiRMS 設備", "設備 TCP port", Type.INT, 1, 65535, dev.port(),
+        "AiRMS 設備接收指令的 TCP port（舊系統為 9876）"));
     for (NetworkConfig.ScreenlineDef sl : screenlines) {
       String g = "屏柵線：" + sl.label();
       add(new Def(screenlineKey(sl.id(), "vdId"), g, "VD 代碼", Type.VD_ID, 0, 0, sl.vdId(),
@@ -281,6 +288,15 @@ public final class SettingsService {
           }
         } catch (IllegalArgumentException e) {
           throw new InvalidSettingException(d.label() + " 格式錯誤");
+        }
+        return t;
+      }
+      case HOST -> {
+        if (!(v instanceof String s)) throw new InvalidSettingException(d.label() + " 必須是文字");
+        String t = s.trim();
+        if (t.isEmpty()) return "";
+        if (!tw.org.ncree.teles.airms.control.AirmsProtocol.validHost(t)) {
+          throw new InvalidSettingException(d.label() + " 必須是 IP（例如 192.168.1.10）或主機名稱，不含 port 與 http://");
         }
         return t;
       }

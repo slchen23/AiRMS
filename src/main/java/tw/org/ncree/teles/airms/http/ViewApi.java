@@ -13,7 +13,7 @@ import tw.org.ncree.teles.airms.view.TrafficRules;
 
 /**
  * 即時監視 API（/api/view/*），只讀。系統設定「首頁與即時監視需要登入」開啟（預設）時，
- * 需登入且有「監視」權限；關閉則不需登入（只適合內網）。
+ * 需登入且有「監視」或「AiRMS 控制」權限；關閉則不需登入（只適合內網）。
  */
 final class ViewApi {
   static final String REQUIRE_LOGIN = "view.requireLogin";
@@ -67,6 +67,7 @@ final class ViewApi {
     if (!loginRequired(settings)) return 200;
     AuthService.Principal p = Http.principal(ctx);
     if (p == null) return 401;
-    return p.account().can(Permission.VIEW) ? 200 : 403;
+    // 有「AiRMS 控制」權限的人在 AiRMS 控制頁也要看路網圖，視同可監視
+    return p.account().can(Permission.VIEW) || p.account().can(Permission.AIRMS_CONTROL) ? 200 : 403;
   }
 }

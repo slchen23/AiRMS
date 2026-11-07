@@ -31,7 +31,8 @@ import tw.org.ncree.teles.airms.feed.FeedKind;
  * 路由與資安標頭。每個回應產生新的隨機 CSP nonce（不再用固定值）；
  * HTML 頁面中的 __CSP_NONCE__ 會換成這次的 nonce。請求本文有上限、不接受檔案上傳，
  * 任何錯誤都回應通用訊息，不外露例外細節。
- * 頁面權限：admin-*.html 需管理者、account.html 需登入；其餘頁面（監視類）不需登入。
+ * 頁面權限：admin-*.html 需管理者、account.html 需登入、airms.html 需「AiRMS 控制」權限（舊網址 view2.html、airms2.html 轉到新網址）；
+ * 首頁與 view.html 依系統設定「首頁與即時監視需要登入」。
  */
 public final class WebServer {
   private static final Logger log = LogManager.getLogger(WebServer.class);
@@ -54,8 +55,12 @@ public final class WebServer {
     authApi.mount(router);
     new AdminApi(app.auth(), app.settings(), app.ramps(), app.liveView(), app.network(), app.clock()::millis).mount(router);
     new ViewApi(app.ramps(), app.liveView(), app.settings()).mount(router);
+    new ControlApi(app.airms(), app.clock()::millis).mount(router);
     router.route("/api/*").handler(ctx -> Http.error(ctx, 404, "找不到這個 API"));
 
+    // 測試期間用過的舊網址轉到新網址，書籤不會失效
+    router.get("/view2.html").handler(ctx -> redirect(ctx, "/view.html"));
+    router.get("/airms2.html").handler(ctx -> redirect(ctx, "/airms.html"));
     Map<String, String> htmlCache = new ConcurrentHashMap<>();
     router.getWithRegex("/(|[a-zA-Z0-9_-]+\\.html)").handler(ctx -> {
       if (pageAllowed(ctx, app)) html(ctx, htmlCache);
@@ -87,10 +92,17 @@ public final class WebServer {
       if (p == null && ViewApi.loginRequired(app.settings())) return redirect(ctx, "/login.html?next=%2Findex.html");
       return true;
     }
-    if (path.equals("/view2.html")) {
+    if (path.equals("/view.html")) {
       int status = ViewApi.accessStatus(ctx, app.settings());
       if (status == 401) return redirect(ctx, "/login.html?next=" + URLEncoder.encode(path, StandardCharsets.UTF_8));
       if (status == 403) return forbidden(ctx, "這個頁面需要「監視」權限。");
+      return true;
+    }
+    if (path.equals("/airms.html")) {
+      // 控制頁一律需要登入與權限，不受「首頁與即時監視需要登入」影響
+      if (p == null) return redirect(ctx, "/login.html?next=" + URLEncoder.encode(path, StandardCharsets.UTF_8));
+      if (p.account().mustChangePassword()) return redirect(ctx, "/account.html?mustChange=1");
+      if (ControlApi.accessStatus(ctx) != 200) return forbidden(ctx, "這個頁面需要「AiRMS 控制」權限。");
       return true;
     }
     boolean adminPage = path.startsWith("/admin-");

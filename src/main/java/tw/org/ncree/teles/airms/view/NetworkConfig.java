@@ -16,7 +16,7 @@ import java.util.Set;
 import java.util.regex.Pattern;
 
 /**
- * 路網設定檔（network.json）：路線、匝道圓圈、RMS 對應、屏柵線。view2、airms2、query 三頁共用。
+ * 路網設定檔（network.json）：路線、匝道圓圈、RMS 對應、屏柵線。即時監視、AiRMS 控制、資料下載三頁共用。
  * 啟動時讀一次並檢查格式，有錯就列出全部錯誤、停止啟動；前端拿到的是檢查過的同一份內容。
  */
 public final class NetworkConfig {

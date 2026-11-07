@@ -10,7 +10,7 @@ function fail(e) {
 
 function displayValue(def, v) {
   if (def.type === 'BOOL') return v ? '開啟' : '關閉';
-  if (def.type === 'URL') return v || '（未設定）';
+  if (def.type === 'URL' || def.type === 'HOST') return v || '（未設定）';
   return String(v);
 }
 
@@ -40,8 +40,8 @@ function inputFor(def) {
     };
   }
   const input = h('input', { class: 'form-control form-control-sm setting-input-url', type: def.type === 'URL' ? 'url' : 'text',
-    id, maxlength: 500,
-    spellcheck: 'false' });
+    id, maxlength: def.type === 'HOST' ? 253 : 500,
+    spellcheck: 'false', placeholder: def.type === 'HOST' ? '例如 192.168.1.10（空白＝未設定）' : null });
   input.value = def.value || '';
   return { id, wrap: input, input, read: () => input.value.trim() };
 }

@@ -64,5 +64,11 @@
     "volumeMarker": ".airms-backup",
     "dailyAt": "02:00",
     "coreKeep": 30
+  },
+  "airmsDevice": {
+    "host": "",
+    "port": 9876,
+    "connectTimeoutMs": 2000,
+    "responseTimeoutMs": 5000
   }
 }

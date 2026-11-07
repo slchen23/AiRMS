@@ -10,6 +10,7 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import tw.org.ncree.teles.airms.control.AirmsProtocol;
 import tw.org.ncree.teles.airms.feed.FeedKind;
 
 /**
@@ -25,6 +26,7 @@ public record AppConfig(
     List<Feed> feeds,
     Retention retention,
     Backup backup,
+    AirmsDevice airmsDevice,
     Path networkFile,
     List<String> notices) {
 
@@ -54,6 +56,13 @@ public record AppConfig(
    * targetDir 內必須有 volumeMarker 標記檔才會寫入，避免硬碟沒接上時寫到 SD 卡的空資料夾。
    */
   public record Backup(boolean enabled, Path targetDir, String volumeMarker, LocalTime dailyAt, int coreKeep) { }
+
+  /**
+   * AiRMS 設備（AiRMS 控制頁讀取與設定）。host、port 是預設值，可在系統設定頁改；host 空白表示尚未設定。
+   * 逾時只能在 config.json 設定：connectTimeoutMs 為每次連線的上限（失敗會再試 2 次），
+   * responseTimeoutMs 為連上後等設備回覆的上限。
+   */
+  public record AirmsDevice(String host, int port, int connectTimeoutMs, int responseTimeoutMs) { }
 
   public Feed feed(FeedKind kind) {
     return feeds.stream().filter(f -> f.kind() == kind).findFirst()
@@ -146,6 +155,7 @@ public record AppConfig(
         intIn(r, "feedLogMonths", 3, 0, 1200, "retention.feedLogMonths", errors));
 
     Backup backup = parseBackup(json.getJsonObject("backup", new JsonObject()), storageCfg, errors);
+    AirmsDevice airms = parseAirmsDevice(json.getValue("airmsDevice"), errors);
 
     // 路網設定檔：不填就用程式內建的 network/network.json；要增減匝道時可指定外部檔案。
     Object networkFile = json.getValue("networkFile");
@@ -156,7 +166,24 @@ public record AppConfig(
       throw new IllegalArgumentException("設定檔有誤：\n- " + String.join("\n- ", errors));
     }
     return new AppConfig(httpCfg, Path.of(secrets), storageCfg, feedHttp, xmlLimits, List.copyOf(feedList), retention,
-        backup, network, List.copyOf(notices));
+        backup, airms, network, List.copyOf(notices));
+  }
+
+  private static AirmsDevice parseAirmsDevice(Object value, List<String> errors) {
+    if (value != null && !(value instanceof JsonObject)) errors.add("airmsDevice 必須是物件");
+    JsonObject a = value instanceof JsonObject o ? o : new JsonObject();
+    Object hostValue = a.getValue("host");
+    String host = "";
+    if (hostValue != null && !(hostValue instanceof String)) {
+      errors.add("airmsDevice.host 必須是文字");
+    } else if (hostValue instanceof String s && !s.isBlank()) {
+      host = s.trim();
+      if (!AirmsProtocol.validHost(host)) errors.add("airmsDevice.host 必須是 IP 或主機名稱（不含 port 與 http://）");
+    }
+    return new AirmsDevice(host,
+        intIn(a, "port", 9876, 1, 65535, "airmsDevice.port", errors),
+        intIn(a, "connectTimeoutMs", 2000, 100, 30000, "airmsDevice.connectTimeoutMs", errors),
+        intIn(a, "responseTimeoutMs", 5000, 500, 60000, "airmsDevice.responseTimeoutMs", errors));
   }
 
   private static Backup parseBackup(JsonObject b, Storage storage, List<String> errors) {

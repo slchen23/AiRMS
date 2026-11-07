@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>AiRMS 控制 - AiRMS</title>
+  <link rel="icon" href="/img/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/vendor/adminlte-4.10.0/css/adminlte.min.css">
+  <link rel="stylesheet" href="/vendor/bootstrap-icons-1.13.2/bootstrap-icons.min.css">
+  <link rel="stylesheet" href="/css/app.css">
+  <link rel="stylesheet" href="/css/network.css">
+</head>
+<body class="view-page airms-page" data-bs-theme="dark">
+  <header class="view-bar">
+    <a class="view-brand" href="/index.html" title="回首頁">AiRMS</a>
+    <span class="view-title">匝道儀控 AiRMS 控制</span>
+    <button type="button" class="btn btn-danger fw-bold" id="watch-btn">開始監控</button>
+    <label class="view-interval" for="watch-interval">間隔更新時間（秒）
+      <input type="number" class="form-control form-control-sm" id="watch-interval" min="10" max="600" step="1" value="25">
+    </label>
+    <label class="view-interval" for="poll-interval">參數輪詢間隔時間（秒）
+      <input type="number" class="form-control form-control-sm" id="poll-interval" min="30" max="3600" step="1" value="180">
+    </label>
+    <span class="view-status" id="view-status" role="status" aria-live="polite"></span>
+    <span class="view-tools">
+      <span class="view-user" id="view-user"></span>
+      <button type="button" class="btn btn-outline-light btn-sm" id="logout-btn" title="登出"><i class="bi bi-box-arrow-right" aria-hidden="true"></i></button>
+      <button type="button" class="btn btn-outline-light btn-sm" id="fullscreen-btn" title="全螢幕"><i class="bi bi-arrows-fullscreen" aria-hidden="true"></i></button>
+      <a class="btn btn-outline-light btn-sm" href="/index.html" title="回首頁"><i class="bi bi-house" aria-hidden="true"></i></a>
+    </span>
+  </header>
+  <main class="view-map">
+    <svg id="network" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="匝道儀控路網即時監視圖"></svg>
+  </main>
+  <section class="airms-panel" aria-label="AiRMS 控制">
+    <div class="airms-box" id="device-box">
+      <h2 class="airms-box-title">設備目前狀態</h2>
+      <div class="airms-status">
+        <div><span class="airms-k">儀控敏感性</span><span class="airms-v" id="dev-sensitivity">—</span></div>
+        <div><span class="airms-k">AiRMS</span><span class="airms-v" id="dev-on">—</span></div>
+      </div>
+      <div class="airms-meta"><span id="dev-time">尚未讀取</span><span id="dev-addr"></span></div>
+      <div class="airms-error" id="dev-error" role="alert"></div>
+      <button type="button" class="btn btn-outline-info btn-sm" id="read-btn"><i class="bi bi-arrow-repeat" aria-hidden="true"></i> 立即讀取</button>
+    </div>
+
+    <div class="airms-box" id="set-box">
+      <h2 class="airms-box-title">設定 <span class="badge text-bg-warning d-none" id="dirty-badge">尚未送出</span></h2>
+      <div class="airms-param">
+        <label class="airms-param-label" for="param-sensitivity">設定參數一　儀控敏感性：40 - 80</label>
+        <div class="airms-range">
+          <button type="button" class="btn btn-outline-light btn-sm" id="sens-minus" title="減 5" aria-label="敏感性減 5"><i class="bi bi-dash-lg" aria-hidden="true"></i></button>
+          <input type="range" class="form-range" id="param-sensitivity" min="40" max="80" step="5" value="60">
+          <button type="button" class="btn btn-outline-light btn-sm" id="sens-plus" title="加 5" aria-label="敏感性加 5"><i class="bi bi-plus-lg" aria-hidden="true"></i></button>
+          <output class="airms-range-value" id="sens-value" for="param-sensitivity">60</output>
+        </div>
+      </div>
+      <div class="airms-param">
+        <span class="airms-param-label">設定參數二　AiRMS 開/關</span>
+        <div class="form-check form-switch airms-switch">
+          <input class="form-check-input" type="checkbox" role="switch" id="param-on" checked>
+          <label class="form-check-label" for="param-on" id="param-on-label">ON</label>
+        </div>
+      </div>
+      <div class="airms-actions">
+        <span class="airms-hint">確認參數一和參數二後送出</span>
+        <button type="button" class="btn btn-warning fw-bold" id="submit-btn">送出 (Submit)</button>
+        <button type="button" class="btn btn-outline-secondary btn-sm d-none" id="revert-btn">還原為設備目前值</button>
+      </div>
+    </div>
+
+    <div class="airms-box airms-box-log">
+      <h2 class="airms-box-title">AiRMS 參數紀錄摘要</h2>
+      <ol class="airms-summary" id="summary" aria-live="polite"></ol>
+      <button type="button" class="btn btn-outline-light btn-sm" id="log-btn"><i class="bi bi-journal-text" aria-hidden="true"></i> 設定紀錄</button>
+    </div>
+  </section>
+
+  <div class="modal fade" id="log-modal" tabindex="-1" aria-labelledby="log-title" aria-hidden="true">
+    <div class="modal-dialog modal-xl modal-dialog-scrollable">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="log-title">AiRMS 設定紀錄（最近 30 天）</h5>
+          <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="關閉"></button>
+        </div>
+        <div class="modal-body">
+          <div id="log-alert"></div>
+          <div class="table-responsive">
+            <table class="table table-sm table-striped align-middle mb-0">
+              <thead>
+                <tr><th>時間</th><th>操作者</th><th>送出</th><th>送出前（最後讀到）</th><th>設備確認</th><th>結果</th><th>設備回覆</th><th>來源 IP</th></tr>
+              </thead>
+              <tbody id="log-rows"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+<script nonce="__CSP_NONCE__" src="/vendor/bootstrap-5.3.8/js/bootstrap.bundle.min.js"></script>
+<script nonce="__CSP_NONCE__" type="module" src="/js/airms.js"></script>
+</body>
+</html>

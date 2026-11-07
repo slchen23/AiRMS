@@ -4,8 +4,9 @@ import { api, h, icon, loadMe, ROLE_LABEL } from './common.js';
 
 const MENU = [
   { key: 'home', href: '/index.html', icon: 'house', label: '首頁' },
-  { key: 'view', href: '/view2.html', icon: 'display', label: '即時監視' },
-  { key: 'control', icon: 'sliders', label: 'AiRMS 控制', pending: true },
+  { key: 'view', href: '/view.html', icon: 'display', label: '即時監視' },
+  // perm：需要該權限才顯示（管理者都有）；登入狀態取得後才決定是否顯示
+  { key: 'control', href: '/airms.html', icon: 'sliders', label: 'AiRMS 控制', perm: 'AIRMS_CONTROL' },
   { key: 'query', icon: 'download', label: '資料下載', pending: true },
 ];
 
@@ -24,7 +25,9 @@ function menuItem(item, active) {
     ? h('span', { class: 'nav-link is-pending', 'aria-disabled': 'true' }, h('i', { class: `nav-icon bi bi-${item.icon}` }), p)
     : h('a', { href: item.href, class: `nav-link${item.key === active ? ' active' : ''}`,
       'aria-current': item.key === active ? 'page' : null }, h('i', { class: `nav-icon bi bi-${item.icon}` }), p);
-  return h('li', { class: 'nav-item' }, link);
+  const li = h('li', { class: `nav-item${item.perm ? ' d-none' : ''}` }, link);
+  if (item.perm) li.dataset.perm = item.perm;
+  return li;
 }
 
 /** 插入版面。active 為選單代碼。回傳 {userArea, adminItems}。 */
@@ -80,6 +83,10 @@ export async function initUser(shell) {
     return null;
   }
   if (user.role === 'ADMIN') shell.adminItems.forEach((el) => el.classList.remove('d-none'));
+  const perms = user.permissions || [];
+  document.querySelectorAll('.sidebar-menu li[data-perm]').forEach((li) => {
+    li.classList.toggle('d-none', !perms.includes(li.dataset.perm));
+  });
 
   const logout = h('button', { type: 'button', class: 'dropdown-item' }, icon('box-arrow-right'), ' 登出');
   logout.addEventListener('click', async () => {

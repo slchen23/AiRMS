@@ -49,7 +49,8 @@ public final class Schema {
       "lane_average_occupancy", "lane_use_rate");
 
   public static void migrateCore(Connection c) throws Exception {
-    migrate(c, CORE_APP_ID, "core.db", List.of(Schema::createCoreV1));
+    migrate(c, CORE_APP_ID, "core.db", List.of(Schema::createCoreV1, Schema::coreV2AirmsControl,
+        Schema::coreV3ControlBeforeTime));
   }
 
   public static void migrateVd(Connection c) throws Exception {
@@ -206,6 +207,40 @@ public final class Schema {
           bytes      INTEGER NOT NULL,
           PRIMARY KEY (kind, unit)
         ) WITHOUT ROWID""");
+  }
+
+  /**
+   * core.db v2（P4）：AiRMS 設備的設定操作紀錄。每次在 AiRMS 控制頁按「送出」一列，成功、失敗都記：
+   * 送出前讀到的狀態（讀不到為 NULL）、送出的值、設備確認的值、結果與設備原始回覆。不自動刪除。
+   */
+  private static void coreV2AirmsControl(Statement st) throws SQLException {
+    st.execute("""
+        CREATE TABLE airms_control_log (
+          log_id              INTEGER PRIMARY KEY,
+          at_ms               INTEGER NOT NULL,
+          username            TEXT    NOT NULL,
+          ip                  TEXT,
+          device              TEXT    NOT NULL,
+          before_sensitivity  INTEGER,
+          before_on           INTEGER CHECK (before_on IN (0,1)),
+          request_sensitivity INTEGER NOT NULL,
+          request_on          INTEGER NOT NULL CHECK (request_on IN (0,1)),
+          after_sensitivity   INTEGER,
+          after_on            INTEGER CHECK (after_on IN (0,1)),
+          outcome             TEXT    NOT NULL,
+          response            TEXT,
+          message             TEXT,
+          duration_ms         INTEGER
+        )""");
+    st.execute("CREATE INDEX airms_control_log_time ON airms_control_log(at_ms)");
+  }
+
+  /**
+   * core.db v3：送出設定改成同舊系統只送設定指令（不先查詢），「送出前」改記最後一次讀到的狀態，
+   * 另存讀到的時間，看得出這個值有多舊。v2 時期的紀錄這欄為 NULL。
+   */
+  private static void coreV3ControlBeforeTime(Statement st) throws SQLException {
+    st.execute("ALTER TABLE airms_control_log ADD COLUMN before_at_ms INTEGER");
   }
 
   // ---------------------------------------------------------------- 月檔

@@ -63,6 +63,18 @@ class SettingsServiceTest {
       assertEquals("VD-N1-S-246.150-M-RS", s.stringValue(SettingsService.screenlineKey("n1-250-s", "vdId")));
       assertTrue(invalid(s.update(SettingsService.screenlineKey("n1-250-s", "volLimit"), 0, "admin", 1))
           .contains("1～100000"));
+
+      // AiRMS 設備位址：預設來自 config.json（範本為空白＝未設定）
+      assertEquals("", s.stringValue(SettingsService.AIRMS_HOST));
+      assertEquals(9876, s.intValue(SettingsService.AIRMS_PORT));
+      await(s.update(SettingsService.AIRMS_HOST, " 10.121.0.8 ", "admin", 1));
+      assertEquals("10.121.0.8", s.stringValue(SettingsService.AIRMS_HOST));
+      for (String bad : new String[] {"10.0.0.8:9876", "http://10.0.0.8", "999.1.1.1", "a b"}) {
+        assertTrue(invalid(s.update(SettingsService.AIRMS_HOST, bad, "admin", 1)).contains("IP"));
+      }
+      assertTrue(invalid(s.update(SettingsService.AIRMS_PORT, 0, "admin", 1)).contains("1～65535"));
+      await(s.update(SettingsService.AIRMS_HOST, "", "admin", 1));
+      assertEquals("", s.stringValue(SettingsService.AIRMS_HOST));
     } finally {
       await(db.close());
       await(vertx.close());

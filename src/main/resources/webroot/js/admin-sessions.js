@@ -34,7 +34,14 @@ const ACTION = {
   SETTING_RESET: '設定還原預設',
   RAMP_UPDATE: '修改路網匝道',
   RAMP_RESET: '路網匝道還原預設',
+  AIRMS_SET: 'AiRMS 設定送出',
 };
+
+const AIRMS_OUTCOME = {
+  OK: '完成', REFUSED: '設備無法設定', MISMATCH: '設備確認的值不同', NOT_CONFIGURED: '尚未設定設備位址',
+  CONNECT_FAILED: '無法連線', TIMEOUT: '設備沒有回應', BAD_RESPONSE: '回覆格式不對',
+};
+const airmsPair = (p) => (p ? `${p.sensitivity}／${p.on ? 'ON' : 'OFF'}` : '未知');
 
 const PERM_LABEL = { AIRMS_CONTROL: 'AiRMS 控制', DATA_DOWNLOAD: '資料下載', VIEW: '監視' };
 const permText = (list) => (list || []).map((p) => PERM_LABEL[p] || p).join('、') || '（無）';
@@ -187,6 +194,11 @@ function describe(row) {
       changes.push(`RMS：${codes(d.before.rms)} → ${codes(d.after.rms)}`);
     }
     return changes.length ? changes.join('；') : '（沒有變更）';
+  }
+  if (row.action === 'AIRMS_SET' && d.request) {
+    const was = d.before && d.before.atMs ? `${airmsPair(d.before)}，${fmtTime(d.before.atMs)} 讀到` : airmsPair(d.before);
+    return `送出 ${airmsPair(d.request)}（原 ${was}）：${AIRMS_OUTCOME[d.outcome] || d.outcome}`
+      + (d.after ? `，設備確認 ${airmsPair(d.after)}` : '');
   }
   if (row.action === 'USER_CREATE') {
     return `角色：${ROLE_LABEL[d.role] || d.role}；權限：${permText(d.permissions)}；啟用：${d.enabled ? '是' : '否'}`
